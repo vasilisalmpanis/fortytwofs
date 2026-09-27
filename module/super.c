@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/module.h>
 #include <linux/fs.h>
 #include <linux/fs_parser.h>
@@ -19,16 +20,17 @@ static int fortytwofs_fill_super(struct super_block *sb, struct fs_context *fc)
 	struct buffer_head *bh;
 	struct inode *root;
 	ft_super *super_ft = NULL;
-	
+
 	super_ft = kzalloc(sizeof(ft_super), GFP_KERNEL);
-	if (super_ft == NULL)
+	if (!super_ft)
 		return -ENOMEM;
 	if (sb_set_blocksize(sb, FT_BLOCK_SIZE) != FT_BLOCK_SIZE) {
 		pr_err("fortytwofs: error: unable to set blocksize\n");
 		kfree(super_ft);
 		return -EINVAL;
 	}
-	if (!(bh = sb_bread(sb, 0))) {
+	bh = sb_bread(sb, 0);
+	if (!bh) {
 		pr_err("fortytwofs: error: unable to read superblock\n");
 		kfree(super_ft);
 		return -EINVAL;
@@ -44,7 +46,7 @@ static int fortytwofs_fill_super(struct super_block *sb, struct fs_context *fc)
 	sb->s_magic = super_ft->magic;
 	sb->s_fs_info = super_ft;
 	sb->s_max_links = 0xFF;
-	
+
 	root = fortyfs_iget(sb, 0);
 	if (IS_ERR(root)) {
 		pr_err("fortytwofs: error: iget inode failed\n");
@@ -61,7 +63,7 @@ static int fortytwofs_fill_super(struct super_block *sb, struct fs_context *fc)
 		return -ENOMEM;
 	}
 	brelse(bh);
-	return (0);
+	return 0;
 }
 
 static int fortytwofs_get_tree(struct fs_context *fc)
@@ -109,6 +111,7 @@ static struct file_system_type fortytwofs_fs_type = {
 static int __init fortytwofs_init(void)
 {
 	int err = 0;
+
 	pr_info("Hello from fortytwofs\n");
 	err = register_filesystem(&fortytwofs_fs_type);
 	return err;
