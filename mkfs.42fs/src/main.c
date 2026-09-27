@@ -12,10 +12,12 @@
 #include "../fortytwofs.h"
 
 #define INODE_SHARE 5
+
 #define min(a,b) \
     ({ __typeof__ (a) _a = (a); \
      __typeof__ (b) _b = (b); \
      _a < _b ? _a : _b; })
+
 #define assert_pos(expected_pos, msg) do    \
 {                                           \
     off_t pos = lseek(fs_fd, 0, SEEK_CUR);  \
@@ -130,14 +132,14 @@ void write_inodes(int fs_fd, struct metadata_size *data) {
         exit(1);
     }
 
-    inode.type = FT_DIR;
     inode.level = 0;
     inode.block = /* superblock */ 1 + data->blocks_bitmap_blocks + data->inode_blocks;
     inode.gid = 0;
     inode.uid = 0;
-    inode.mode = 0755;
+    inode.mode = FT_IDIR | 0755;
     inode.ctime = (uint32_t)time(NULL);
     inode.mtime = inode.ctime;
+    inode.atime = inode.ctime;
     inode.size = FT_BLOCK_SIZE;
     write_one_inode(fs_fd, &inode);
     memset(&inode, 0, sizeof(ft_inode));
