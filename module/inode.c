@@ -1,13 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
-#include <linux/fs.h>
-#include <linux/buffer_head.h>
-#include <linux/slab.h>
-#include <linux/string.h>
-#include <linux/byteorder/generic.h>
-#include "fortytwofs.h"
 #include "ft_fs.h"
 
-const struct inode_operations fortyfs_inode_operations = {
+static const struct inode_operations fortyfs_inode_operations = {
 	// .listxattr		= fortytwofs_listxattr,
 	// .getattr		= fortytwofs_getattr,
 	// .setattr		= fortytwofs_setattr,
@@ -21,9 +15,8 @@ const struct inode_operations fortyfs_inode_operations = {
 struct inode *fortyfs_iget(struct super_block *sb, unsigned long ino)
 {
 	struct inode *inode;
-	struct buffer_head *bh = NULL;
-	ft_inode *inode_ft;
-	ft_super *super_ft = (ft_super *)sb->s_fs_info;
+	struct buffer_head *bh;
+	ft_super *super_ft = sb->s_fs_info;
 	int block;
 	int ino_in_block;
 
@@ -36,7 +29,8 @@ struct inode *fortyfs_iget(struct super_block *sb, unsigned long ino)
 	if (!(inode->i_state & I_NEW))
 		return inode;
 
-	inode_ft = kzalloc(sizeof(ft_inode), GFP_KERNEL);
+	struct ft_inode *inode_ft __free(kfree) = kzalloc(sizeof(*inode_ft),
+							  GFP_KERNEL);
 	if (!inode_ft) {
 		iget_failed(inode);
 		return ERR_PTR(-ENOMEM);
@@ -45,15 +39,14 @@ struct inode *fortyfs_iget(struct super_block *sb, unsigned long ino)
 	block = ino / FT_INODES_PER_BLOCK + 1;
 	bh = sb_bread(sb, block);
 	if (!bh) {
-		pr_err("fortytwofs: error: unable to read inode\n");
+		pr_err("unable to read inode %lu\n", ino);
 		iget_failed(inode);
-		kfree(inode_ft);
 		return ERR_PTR(-EINVAL);
 	}
 	ino_in_block = ino % FT_INODES_PER_BLOCK;
-	memcpy(inode_ft, bh->b_data + ino_in_block * sizeof(ft_inode),
-	       sizeof(ft_inode));
-	inode->i_private = inode_ft;
+	memcpy(inode_ft, bh->b_data + ino_in_block * sizeof(*inode_ft),
+	       sizeof(*inode_ft));
+	brelse(bh);
 
 	inode->i_mode = le16_to_cpu(inode_ft->mode);
 	i_uid_write(inode, le32_to_cpu(inode_ft->uid));
@@ -65,7 +58,6 @@ struct inode *fortyfs_iget(struct super_block *sb, unsigned long ino)
 	inode_set_mtime(inode, (signed int)le32_to_cpu(inode_ft->mtime), 0);
 	if (inode->i_nlink == 0 && inode->i_mode == 0) {
 		iget_failed(inode);
-		kfree(inode_ft);
 		return ERR_PTR(-ESTALE);
 	}
 
@@ -76,7 +68,7 @@ struct inode *fortyfs_iget(struct super_block *sb, unsigned long ino)
 		inode->i_op = &fortytwofs_dir_inode_operations;
 		inode->i_fop = &fortytwofs_dir_ops;
 	}
-	brelse(bh);
+	inode->i_private = no_free_ptr(inode_ft);
 	unlock_new_inode(inode);
 	return inode;
 }

@@ -1,10 +1,4 @@
 // SPDX-License-Identifier: GPL-2.0
-#include <linux/fs.h>
-#include <linux/buffer_head.h>
-#include <linux/slab.h>
-#include <linux/string.h>
-#include <linux/byteorder/generic.h>
-#include "fortytwofs.h"
 #include "ft_fs.h"
 
 static struct dentry *fortytwofs_lookup(struct inode *dir,

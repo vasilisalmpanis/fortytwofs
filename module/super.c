@@ -1,12 +1,4 @@
 // SPDX-License-Identifier: GPL-2.0
-#include <linux/module.h>
-#include <linux/fs.h>
-#include <linux/fs_parser.h>
-#include <linux/fs_context.h>
-#include <linux/slab.h>
-#include <linux/buffer_head.h>
-#include <linux/dcache.h>
-#include "fortytwofs.h"
 #include "ft_fs.h"
 
 struct fortytwo_fs_context {
@@ -16,54 +8,53 @@ struct fortytwo_fs_context {
 
 static int fortytwofs_fill_super(struct super_block *sb, struct fs_context *fc)
 {
-	// struct fortytwo_fs_context *ctx = fc->fs_private;
 	struct buffer_head *bh;
 	struct inode *root;
-	ft_super *super_ft = NULL;
 
-	super_ft = kzalloc(sizeof(ft_super), GFP_KERNEL);
-	if (!super_ft)
-		return -ENOMEM;
 	if (sb_set_blocksize(sb, FT_BLOCK_SIZE) != FT_BLOCK_SIZE) {
-		pr_err("fortytwofs: error: unable to set blocksize\n");
-		kfree(super_ft);
+		pr_err("unable to set blocksize\n");
 		return -EINVAL;
 	}
 	bh = sb_bread(sb, 0);
 	if (!bh) {
-		pr_err("fortytwofs: error: unable to read superblock\n");
-		kfree(super_ft);
+		pr_err("unable to read superblock\n");
 		return -EINVAL;
 	}
-	super_ft = (ft_super *)bh->b_data;
+	struct ft_super *super_ft __free(kfree) = kmemdup(bh->b_data,
+							  sizeof(*super_ft),
+							  GFP_KERNEL);
+	brelse(bh);
+	if (!super_ft)
+		return -ENOMEM;
+
 	if (super_ft->magic != FT_FS_MAGIC) {
-		pr_err("fortytwofs: error: 42fs filesystem not found\n");
-		kfree(super_ft);
-		brelse(bh);
+		pr_err("42fs filesystem not found\n");
 		return -EINVAL;
 	}
-	pr_info("Magic is correct\n");
 	sb->s_magic = super_ft->magic;
-	sb->s_fs_info = super_ft;
+	sb->s_fs_info = no_free_ptr(super_ft);
 	sb->s_max_links = 0xFF;
 
 	root = fortyfs_iget(sb, 0);
 	if (IS_ERR(root)) {
-		pr_err("fortytwofs: error: iget inode failed\n");
-		kfree(super_ft);
-		brelse(bh);
-		return -EINVAL;
+		pr_err("unable to get root inode\n");
+		return PTR_ERR(root);
 	}
 
 	sb->s_root = d_make_root(root);
 	if (!sb->s_root) {
-		pr_err("fortytwofs: error: get root inode failed");
-		kfree(super_ft);
-		brelse(bh);
+		pr_err("unable to make root dentry\n");
 		return -ENOMEM;
 	}
-	brelse(bh);
 	return 0;
+}
+
+static void fortytwofs_kill_sb(struct super_block *sb)
+{
+	ft_super *super_ft = sb->s_fs_info;
+
+	kill_block_super(sb);
+	kfree(super_ft);
 }
 
 static int fortytwofs_get_tree(struct fs_context *fc)
@@ -102,7 +93,7 @@ static const struct fs_parameter_spec fortytwofs_param_spec[] = {
 static struct file_system_type fortytwofs_fs_type = {
 	.owner			= THIS_MODULE,
 	.name			= "fortytwofs",
-	.kill_sb		= kill_block_super,
+	.kill_sb		= fortytwofs_kill_sb,
 	.fs_flags		= FS_REQUIRES_DEV,
 	.init_fs_context	= fortytwofs_init_fs_context,
 	.parameters		= fortytwofs_param_spec,
@@ -110,11 +101,8 @@ static struct file_system_type fortytwofs_fs_type = {
 
 static int __init fortytwofs_init(void)
 {
-	int err = 0;
-
 	pr_info("Hello from fortytwofs\n");
-	err = register_filesystem(&fortytwofs_fs_type);
-	return err;
+	return register_filesystem(&fortytwofs_fs_type);
 }
 module_init(fortytwofs_init);
 
