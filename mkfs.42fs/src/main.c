@@ -92,7 +92,7 @@ void write_dentries(int fs_fd) {
 
     // dir .
     dentry.ino_idx = 0;
-    dentry.type = FT_DIR;
+    dentry.type = FT42_DIR;
     dentry.name[0] = '.';
     write_one_dentry(fs_fd, &dentry);
 
@@ -133,10 +133,11 @@ void write_inodes(int fs_fd, struct metadata_size *data) {
     }
 
     inode.level = 0;
+    inode.links = 2;
     inode.block = /* superblock */ 1 + data->blocks_bitmap_blocks + data->inode_blocks;
     inode.gid = 0;
     inode.uid = 0;
-    inode.mode = FT_IDIR | 0755;
+    inode.mode = FT42_IDIR | 0755;
     inode.ctime = (uint32_t)time(NULL);
     inode.mtime = inode.ctime;
     inode.atime = inode.ctime;

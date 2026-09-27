@@ -1,53 +1,53 @@
 #pragma once
-#include <stdint.h>
+#include <linux/types.h>
 
-typedef struct  super
+typedef struct  ft_super
 {
-    uint32_t    magic;
-    uint32_t    blocks_bitmap_block;
-    uint32_t    inodes_count;
-    uint32_t    blocks_count;
-    uint32_t    free_inodes;
-    uint32_t    free_blocks;
+    __u32    magic;
+    __u32    blocks_bitmap_block;
+    __u32    inodes_count;
+    __u32    blocks_count;
+    __u32    free_inodes;
+    __u32    free_blocks;
 } __attribute__((packed)) ft_super;
 
-#define FT_FREE 0x00
-#define FT_FIFO 0x01
-#define FT_CHR  0x02
-#define FT_DIR  0x04
-#define FT_BLK  0x06
-#define FT_REG  0x08
-#define FT_LINK 0x0A
-#define FT_SOCK 0x0C
+#define FT42_FREE 0x00
+#define FT42_FIFO 0x01
+#define FT42_CHR  0x02
+#define FT42_DIR  0x04
+#define FT42_BLK  0x06
+#define FT42_REG  0x08
+#define FT42_LINK 0x0A
+#define FT42_SOCK 0x0C
 
-#define FT_IFREE 0x0000
-#define FT_IFIFO 0x1000
-#define FT_ICHR  0x2000
-#define FT_IDIR  0x4000
-#define FT_IBLK  0x6000
-#define FT_IREG  0x8000
-#define FT_ILINK 0xA000
-#define FT_ISOCK 0xC000
+#define FT42_IFREE 0x0000
+#define FT42_IFIFO 0x1000
+#define FT42_ICHR  0x2000
+#define FT42_IDIR  0x4000
+#define FT42_IBLK  0x6000
+#define FT42_IREG  0x8000
+#define FT42_ILINK 0xA000
+#define FT42_ISOCK 0xC000
 
-typedef struct  inode
+typedef struct  ft_inode
 {
-    uint8_t     _reserved;
-    uint8_t     level;
-    uint16_t    mode;
-    uint32_t    uid;
-    uint32_t    gid;
-    uint32_t    block;
-    uint32_t    size;
-    uint32_t    ctime;
-    uint32_t    mtime;
-    uint32_t    atime;
+    __u8     links;
+    __u8     level;
+    __u16    mode;
+    __u32    uid;
+    __u32    gid;
+    __u32    block;
+    __u32    size;
+    __u32    ctime;
+    __u32    mtime;
+    __u32    atime;
 } __attribute__((packed)) ft_inode;
 
-typedef struct dentry
+typedef struct ft_dentry
 {
-    uint32_t    ino_idx;
-    uint8_t     type;
-    char        name[251];
+    __u32    ino_idx;
+    __u8     type;
+    char     name[251];
 } __attribute__((packed)) ft_dentry;
 
 #define FT_FS_MAGIC                     0x46573432

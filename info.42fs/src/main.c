@@ -90,7 +90,7 @@ int main(int ac, char **av) {
             exit(1);
         }
         bytes_read += oneshot_read;
-        if (d.type == FT_FREE)
+        if (d.type == FT42_FREE)
             continue ;
         printf(
             "Dentry: type: %d, inode: %d, name: %s\n",
