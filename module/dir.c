@@ -1,10 +1,4 @@
 // SPDX-License-Identifier: GPL-2.0
-#include <linux/fs.h>
-#include <linux/buffer_head.h>
-#include <linux/slab.h>
-#include <linux/string.h>
-#include <linux/byteorder/generic.h>
-#include "fortytwofs.h"
 #include "ft_fs.h"
 
 static int fortytwofs_dir_open(struct inode *inode, struct file *file)
@@ -42,10 +36,8 @@ static int fortytwofs_readdir(struct file *file, struct dir_context *ctx)
 			continue;
 		if (!dir_emit(ctx, dentry->name, strlen(dentry->name),
 			      le32_to_cpu(dentry->ino_idx),
-			      fs_ftype_to_dtype(dentry->type))) {
-			brelse(bh);
-			return 0;
-		}
+			      fs_ftype_to_dtype(dentry->type)))
+			break;
 	}
 	brelse(bh);
 	return 0;
