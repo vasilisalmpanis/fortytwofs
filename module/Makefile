@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 obj-m += fortytwofsmod.o
 fortytwofsmod-objs := super.o inode.o dir.o file.o namei.o
 
