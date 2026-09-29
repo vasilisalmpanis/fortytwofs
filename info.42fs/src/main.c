@@ -39,23 +39,23 @@ int main(int ac, char **av) {
         perror(av[0]);
         exit(1);
     }
-    
+
     // Read superblock
-    if (read(fs_fd, &s, sizeof(s)) < 0) {
+    if (read(fs_fd, &s, sizeof(ft_super_data)) < 0) {
         perror(av[0]);
         exit(1);
     }
-    if (s.magic != FT_FS_MAGIC) {
+    if (s.data.magic != FT_FS_MAGIC) {
         fprintf(stderr, "%s: %s magic does not match\n", av[0], av[1]);
         exit(1);
     }
 
-    printf("Blocks: %d / %d\n",  s.free_blocks, s.blocks_count);
-    printf("Inodes: %d / %d\n",  s.free_inodes, s.inodes_count);
-    printf("Taken: %d B, free: %d B, total: %d B\n",
-        (s.blocks_count - s.free_blocks) * FT_BLOCK_SIZE,
-        s.free_blocks * FT_BLOCK_SIZE,
-        s.blocks_count * FT_BLOCK_SIZE
+    printf("Blocks: %d / %d\n",  s.data.free_blocks, s.data.blocks_count);
+    printf("Inodes: %d / %d\n",  s.data.free_inodes, s.data.inodes_count);
+    printf("Taken: %u B, free: %u B, total: %u B\n",
+        (s.data.blocks_count - s.data.free_blocks) * FT_BLOCK_SIZE,
+        s.data.free_blocks * FT_BLOCK_SIZE,
+        s.data.blocks_count * FT_BLOCK_SIZE
     );
 
     // Read root inode

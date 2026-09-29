@@ -155,17 +155,17 @@ void write_superblock(int fs_fd, struct metadata_size *data, ft_super *superbloc
     ssize_t written_oneshot = 0;
     uint32_t bitmap_val = 0x00000001;
 
-    superblock->magic = FT_FS_MAGIC;
-    superblock->free_blocks = data->total_blocks - data->inode_blocks \
+    superblock->data.magic = FT_FS_MAGIC;
+    superblock->data.free_blocks = data->total_blocks - data->inode_blocks \
                               - data->blocks_bitmap_blocks - 1 - 1;
-    superblock->free_inodes = data->inode_blocks * FT_INODES_PER_BLOCK - 1;
-    superblock->blocks_bitmap_block = 1 + data->inode_blocks;
-    superblock->blocks_count = data->total_blocks;
-    superblock->inodes_count = data->inode_blocks * FT_INODES_PER_BLOCK;
+    superblock->data.free_inodes = data->inode_blocks * FT_INODES_PER_BLOCK - 1;
+    superblock->data.blocks_bitmap_block = 1 + data->inode_blocks;
+    superblock->data.blocks_count = data->total_blocks;
+    superblock->data.inodes_count = data->inode_blocks * FT_INODES_PER_BLOCK;
 
-    while (written < sizeof(*superblock)) {
+    while (written < sizeof(ft_super_data)) {
         const uint8_t *ptr = (const uint8_t *)superblock;
-        written_oneshot = write(fs_fd, ptr + written, sizeof(*superblock) - written);
+        written_oneshot = write(fs_fd, ptr + written, sizeof(ft_super_data) - written);
         if (written_oneshot < 0) {
             if (errno == EINTR)
                 continue;
@@ -230,7 +230,7 @@ void write_metadata(int fs_fd, struct metadata_size *data) {
 
     write_superblock(fs_fd, data, &superblock);
 
-    if (lseek(fs_fd, superblock.blocks_bitmap_block * FT_BLOCK_SIZE, SEEK_SET) < 0) {
+    if (lseek(fs_fd, superblock.data.blocks_bitmap_block * FT_BLOCK_SIZE, SEEK_SET) < 0) {
         perror("mkfs.42fs: lseek");
         exit(1);
     }
@@ -242,7 +242,7 @@ void write_metadata(int fs_fd, struct metadata_size *data) {
             "wrote past end of first block");
 
     write_inodes(fs_fd, data);
-    assert_pos(superblock.blocks_bitmap_block * FT_BLOCK_SIZE,
+    assert_pos(superblock.data.blocks_bitmap_block * FT_BLOCK_SIZE,
             "Logic bug wrote past the end of inodes blocks");
 }
 

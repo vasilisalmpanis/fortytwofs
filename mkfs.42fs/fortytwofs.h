@@ -1,14 +1,24 @@
 #pragma once
 #include <linux/types.h>
 
+#define FT_FS_MAGIC                     0x46573432
+#define FT_BLOCK_SIZE                   4096
+#define FT_MIN_BLOCKS                   4
+
+typedef struct super_data
+{
+    __u32	magic;
+    __u32    	blocks_bitmap_block;
+    __u32    	inodes_count;
+    __u32    	blocks_count;
+    __u32    	free_inodes;
+    __u32    	free_blocks;
+}__attribute__((packed)) ft_super_data;
+
 typedef struct  ft_super
 {
-    __u32    magic;
-    __u32    blocks_bitmap_block;
-    __u32    inodes_count;
-    __u32    blocks_count;
-    __u32    free_inodes;
-    __u32    free_blocks;
+	ft_super_data data;
+    __u8	inodes_bitmap[FT_BLOCK_SIZE - sizeof(ft_super_data)];
 } __attribute__((packed)) ft_super;
 
 #define FT42_FREE 0x00
@@ -50,9 +60,6 @@ typedef struct ft_dentry
     char     name[251];
 } __attribute__((packed)) ft_dentry;
 
-#define FT_FS_MAGIC                     0x46573432
-#define FT_BLOCK_SIZE                   4096
-#define FT_MIN_BLOCKS                   4
 #define FT_INODE_BITMAP_SIZE            FT_BLOCK_SIZE - sizeof(ft_super)
 #define FT_MAX_INODES_COUNT	            FT_INODE_BITMAP_SIZE * 8
 #define FT_INODES_PER_BLOCK	            FT_BLOCK_SIZE / sizeof(ft_inode)
