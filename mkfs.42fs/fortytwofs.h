@@ -60,7 +60,7 @@ typedef struct ft_dentry
     char     name[251];
 } __attribute__((packed)) ft_dentry;
 
-#define FT_INODE_BITMAP_SIZE            FT_BLOCK_SIZE - sizeof(ft_super)
+#define FT_INODE_BITMAP_SIZE            FT_BLOCK_SIZE - sizeof(ft_super_data)
 #define FT_MAX_INODES_COUNT	            FT_INODE_BITMAP_SIZE * 8
 #define FT_INODES_PER_BLOCK	            FT_BLOCK_SIZE / sizeof(ft_inode)
 #define FT_MAX_INODES_BLOCKS            FT_MAX_INODES_COUNT / FT_INODES_PER_BLOCK

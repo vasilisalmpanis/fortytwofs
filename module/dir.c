@@ -18,7 +18,9 @@ static int fortytwofs_dir_release(struct inode *inode, struct file *file)
 static int fortytwofs_readdir(struct file *file, struct dir_context *ctx)
 {
 	struct inode *inode = file_inode(file);
-	ft_inode *inode_ft = (ft_inode *)inode->i_private;
+	ft_inode_info *info = (ft_inode_info *)inode->i_private;
+	ft_inode *inode_ft = info->inode;
+
 	struct buffer_head *bh = NULL;
 	ft_dentry *dentry = NULL;
 	loff_t pos = ctx->pos;

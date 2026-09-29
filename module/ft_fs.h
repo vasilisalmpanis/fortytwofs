@@ -10,10 +10,22 @@
 #include <linux/buffer_head.h>
 #include <linux/slab.h>
 #include <linux/string.h>
+#include <linux/types.h>
 #include <linux/byteorder/generic.h>
 #include "fortytwofs.h"
 
+typedef struct fortytwofs_super_info {
+	struct buffer_head *bh;
+	ft_super *super;
+} ft_super_info;
+
+typedef struct fortytwofs_inode_info {
+	struct buffer_head *bh;
+	ft_inode *inode;
+} ft_inode_info;
+
 struct inode *fortyfs_iget(struct super_block *sb, unsigned long ino);
+struct inode *fortytwofs_new_inode(struct inode *dir, umode_t mode, char* name);
 extern const struct file_operations fortytwofs_file_ops;
 extern const struct file_operations fortytwofs_dir_ops;
 extern const struct inode_operations fortytwofs_dir_inode_operations;

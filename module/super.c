@@ -20,24 +20,29 @@ static int fortytwofs_fill_super(struct super_block *sb, struct fs_context *fc)
 		pr_err("unable to read superblock\n");
 		return -EINVAL;
 	}
-	struct ft_super *super_ft __free(kfree) = kmemdup(bh->b_data,
-							  sizeof(*super_ft),
-							  GFP_KERNEL);
-	brelse(bh);
-	if (!super_ft)
+	ft_super_info * super_ft __free(kfree) = kzalloc(sizeof(ft_super_info),
+							GFP_KERNEL);
+	if (!super_ft) {
+		brelse(bh);
 		return -ENOMEM;
+	}
 
-	if (super_ft->magic != FT_FS_MAGIC) {
+	super_ft->bh = bh;
+	super_ft->super = (ft_super *)bh->b_data;
+
+	if (super_ft->super->data.magic != FT_FS_MAGIC) {
 		pr_err("42fs filesystem not found\n");
+		brelse(bh);
 		return -EINVAL;
 	}
-	sb->s_magic = super_ft->magic;
+	sb->s_magic = super_ft->super->data.magic;
 	sb->s_fs_info = no_free_ptr(super_ft);
 	sb->s_max_links = 0xFF;
 
 	root = fortyfs_iget(sb, 0);
 	if (IS_ERR(root)) {
 		pr_err("unable to get root inode\n");
+		brelse(bh);
 		return PTR_ERR(root);
 	}
 
