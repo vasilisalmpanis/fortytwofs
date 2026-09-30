@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: GPL-2.0
 #include "ft_fs.h"
 
-static int fortytwofs_create(struct mnt_idmap * idmap,
-			struct inode * dir, struct dentry * dentry,
-			umode_t mode, bool excl)
+static int fortytwofs_create(struct mnt_idmap *idmap,
+			     struct inode *dir, struct dentry *dentry,
+			     umode_t mode, bool excl)
 {
-	(void) idmap;
-	(void) dir;
-	(void) dentry;
-	(void) mode;
-	(void) excl;
+	(void)idmap;
+	(void)excl;
+	struct inode *inode = fortytwofs_new_inode(dir, mode, &dentry->d_name);
+
+	if (IS_ERR(inode))
+		return PTR_ERR(inode);
+	d_instantiate(dentry, inode);
 	return 0;
 }
 
@@ -17,7 +19,9 @@ static struct dentry *fortytwofs_lookup(struct inode *dir,
 					struct dentry *dentry,
 					unsigned int flags)
 {
-	return ERR_PTR(-ENOENT);
+	// return ERR_PTR(-ENOENT);
+	// TODO: implement lookup for existing inodes
+	return d_splice_alias(NULL, dentry);
 }
 
 const struct inode_operations fortytwofs_dir_inode_operations = {

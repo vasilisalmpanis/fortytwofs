@@ -25,7 +25,14 @@ typedef struct fortytwofs_inode_info {
 } ft_inode_info;
 
 struct inode *fortyfs_iget(struct super_block *sb, unsigned long ino);
-struct inode *fortytwofs_new_inode(struct inode *dir, umode_t mode, char* name);
+struct inode *fortytwofs_new_inode(struct inode *dir, umode_t mode,
+				   const struct qstr *qstr);
+int ftfs_add_dentry(struct inode *dir, struct inode *child,
+		    const struct qstr *qstr);
+int ftfs_alloc_new_block(struct super_block *sb);
+int ftfs_zalloc_new_block(struct super_block *sb);
+int ftfs_next_level(struct inode *inode);
+
 extern const struct file_operations fortytwofs_file_ops;
 extern const struct file_operations fortytwofs_dir_ops;
 extern const struct inode_operations fortytwofs_dir_inode_operations;

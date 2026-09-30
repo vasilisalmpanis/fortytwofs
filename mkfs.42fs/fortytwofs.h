@@ -66,3 +66,4 @@ typedef struct ft_dentry
 #define FT_MAX_INODES_BLOCKS            (FT_MAX_INODES_COUNT / FT_INODES_PER_BLOCK)
 #define FT_BITMAP_CAPACITY_PER_BLOCK    (FT_BLOCK_SIZE * 8) // block granularity
 #define FT_DENTRY_PER_BLOCK             (FT_BLOCK_SIZE / sizeof(ft_dentry))
+#define FT_PTRS_PER_BLOCK             	(FT_BLOCK_SIZE / sizeof(__u32))

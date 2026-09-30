@@ -91,6 +91,62 @@ static int fortytwofs_init_fs_context(struct fs_context *fc)
 	return 0;
 }
 
+int ftfs_alloc_new_block(struct super_block *sb)
+{
+	ft_super_info *info = (ft_super_info *)sb->s_fs_info;
+	ft_super *ft_sb = info->super;
+	struct buffer_head *bh = NULL;
+	unsigned long bm_size = FT_BITMAP_CAPACITY_PER_BLOCK;
+	int ret = 0;
+
+	if (ft_sb->data.free_blocks == 0)
+		return -ENOSPC;
+	int bm_blocks = ft_sb->data.blocks_count / FT_BITMAP_CAPACITY_PER_BLOCK;
+
+	for (int bm_blk = 0; bm_blk <= bm_blocks; bm_blk++) {
+		if (bm_blk == bm_blocks)
+			bm_size = ft_sb->data.blocks_count
+				  % FT_BITMAP_CAPACITY_PER_BLOCK;
+		if (bm_blk == 0)
+			bm_size = FT_BITMAP_CAPACITY_PER_BLOCK;
+		bh = sb_bread(sb, bm_blk + ft_sb->data.blocks_bitmap_block);
+		ret = find_next_zero_bit_le(bh->b_data, bm_size, 0);
+		if (ret < bm_size) {
+			__set_bit_le(ret, bh->b_data);
+			mark_buffer_dirty(bh);
+			brelse(bh);
+
+			ft_sb->data.free_blocks -= 1;
+			mark_buffer_dirty(info->bh);
+
+			return FT_BITMAP_CAPACITY_PER_BLOCK * bm_blk + ret;
+		}
+		brelse(bh);
+	}
+	return -ENOSPC;
+}
+
+int ftfs_zalloc_new_block(struct super_block *sb)
+{
+	struct buffer_head *bh;
+	int block = ftfs_alloc_new_block(sb);
+
+	if (block < 0)
+		return block;
+	bh = sb_getblk(sb, block);
+	if (!bh) {
+		// TODO: free block
+		return -ENOMEM;
+	}
+	lock_buffer(bh);
+	memset(bh->b_data, 0, FT_BLOCK_SIZE);
+	set_buffer_uptodate(bh);
+	unlock_buffer(bh);
+	mark_buffer_dirty(bh);
+	brelse(bh);
+	return block;
+}
+
 static const struct fs_parameter_spec fortytwofs_param_spec[] = {
 	{}
 };
