@@ -48,7 +48,7 @@ static int fortytwofs_create(struct mnt_idmap *idmap,
 
 	if (IS_ERR(inode))
 		return PTR_ERR(inode);
-	d_instantiate(dentry, inode);
+	d_instantiate_new(dentry, inode);
 	return 0;
 }
 
