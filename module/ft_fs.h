@@ -29,6 +29,7 @@ struct inode *fortytwofs_new_inode(struct inode *dir, umode_t mode,
 				   const struct qstr *qstr);
 int ftfs_add_dentry(struct inode *dir, struct inode *child,
 		    const struct qstr *qstr);
+int ftfs_make_empty(struct inode *inode, struct inode *parent);
 int ftfs_alloc_new_block(struct super_block *sb);
 int ftfs_zalloc_new_block(struct super_block *sb);
 int ftfs_next_level(struct inode *inode);

@@ -39,125 +39,112 @@ void ftfs_set_inode_data(struct inode *inode)
 	ftfs_set_inode_ops(inode);
 }
 
+/* Take the first free inode number from the bitmap in the superblock */
+static int ftfs_alloc_ino(struct super_block *sb, unsigned long *ino)
+{
+	ft_super_info *super_info = sb->s_fs_info;
+	ft_super *super = super_info->super;
+	u32 count = min_t(u32, super->data.inodes_count, FT_MAX_INODES_COUNT);
+	unsigned long bit;
+
+	if (super->data.free_inodes == 0)
+		return -ENOSPC;
+	bit = find_next_zero_bit_le(super->inodes_bitmap, count, 0);
+	if (bit >= count)
+		return -ENOSPC;
+
+	__set_bit_le(bit, super->inodes_bitmap);
+	super->data.free_inodes -= 1;
+	mark_buffer_dirty(super_info->bh);
+	*ino = bit;
+	return 0;
+}
+
+static void ftfs_free_ino(struct super_block *sb, unsigned long ino)
+{
+	ft_super_info *super_info = sb->s_fs_info;
+	ft_super *super = super_info->super;
+
+	__clear_bit_le(ino, super->inodes_bitmap);
+	super->data.free_inodes += 1;
+	mark_buffer_dirty(super_info->bh);
+}
+
+static void ftfs_write_raw_inode(ft_inode *raw, struct inode *inode)
+{
+	raw->mode = cpu_to_le16(inode->i_mode);
+	raw->links = inode->i_nlink;
+	raw->uid = cpu_to_le32(i_uid_read(inode));
+	raw->gid = cpu_to_le32(i_gid_read(inode));
+	raw->size = cpu_to_le32(inode->i_size);
+	raw->ctime = cpu_to_le32(inode_get_ctime_sec(inode));
+	raw->mtime = cpu_to_le32(inode_get_mtime_sec(inode));
+	raw->atime = cpu_to_le32(inode_get_atime_sec(inode));
+}
+
 struct inode *fortytwofs_new_inode(struct inode *dir, umode_t mode,
 				   const struct qstr *qstr)
 {
-	struct inode *inode = NULL;
+	struct super_block *sb = dir->i_sb;
 	struct buffer_head *bh;
-	struct super_block *sb;
-	ft_inode_info *info = NULL;
-	ft_super_info *super_info = NULL;
-	ft_super *super = NULL;
-	ft_inode *raw_inode = NULL;
-	__u32 inode_index = 0;
-	__u32 inode_block = 0;
-	__u32 error = 0;
-	__u8 old_byte = 0;
-	int i = 0;
+	struct inode *inode;
+	unsigned long ino;
+	ft_inode *raw;
+	int error;
 
-	sb = dir->i_sb;
-	super_info = sb->s_fs_info;
-	super = super_info->super;
+	ft_inode_info *info __free(kfree) = kzalloc(sizeof(*info), GFP_KERNEL);
+	if (!info)
+		return ERR_PTR(-ENOMEM);
 
-	if (super->data.free_inodes == 0) {
-		error = -ENOSPC;
-		goto err;
+	error = ftfs_alloc_ino(sb, &ino);
+	if (error)
+		return ERR_PTR(error);
+
+	bh = sb_bread(sb, ino / FT_INODES_PER_BLOCK + 1); /* First block is SB */
+	if (!bh) {
+		error = -ENOMEM;
+		goto free_ino;
 	}
 
 	inode = new_inode(sb);
 	if (!inode) {
 		error = -ENOMEM;
-		goto err;
+		goto free_bh;
 	}
-
-	// Go to bitmap and get index of free inode and mark it as taken
-	for (i = 0; i < FT_INODE_BITMAP_SIZE; i++) {
-		__u8 byte = le32_to_cpu(super->inodes_bitmap[i]);
-
-		if (byte == 0xFF)
-			continue;
-		if (inode_index != 0)
-			break;
-
-		for (int j = 0; j < sizeof(__u8); j++) {
-			__u8 mask = 1 << j;
-
-			if ((mask & byte) == 0) {
-				// Found the index
-				byte |= mask;
-				old_byte = le32_to_cpu(super->inodes_bitmap[i]);
-				super->inodes_bitmap[i] = cpu_to_le32(byte);
-				inode_index = i * sizeof(__u8) + j;
-				break;
-			}
-		}
-	}
-	if (inode_index == 0) {
-		error = -ENOSPC;
-		goto free_inode;
-	}
-	super->data.free_inodes -= 1;
-
-	// go to inodes array and write this inode there
-	// - calculate which inode block
-	// - read this block
-	// - go to offset and write new inode
-	// - mark_buffer_dirty to flush
-
-	inode_block = inode_index / FT_INODES_PER_BLOCK + 1; /* First block is SB */
-	bh = sb_bread(sb, inode_block);
-	if (!bh) {
-		error = -ENOMEM;
-		goto rollback_sb;
-	}
-	info = kmalloc(sizeof(ft_super_info), GFP_KERNEL);
-	if (!info) {
-		brelse(bh);
-		error = -ENOMEM;
-		goto rollback_sb;
-	}
-	inode->i_private = info;
-	simple_inode_init_ts(inode);
-	raw_inode = (ft_inode *)bh->b_data;
-	raw_inode += (inode_index % FT_INODES_PER_BLOCK);
-
-	info->bh = bh;
-	info->inode = raw_inode;
-
-	raw_inode->block = 0;
-	raw_inode->level = 0;
-	raw_inode->uid = 0;
-	raw_inode->gid = 0;
-	raw_inode->mode = cpu_to_le32(mode);
-	raw_inode->links = cpu_to_le32(1);
-	raw_inode->size = 0;
-	raw_inode->ctime = cpu_to_le32(inode_get_ctime_sec(inode));
-	raw_inode->mtime = cpu_to_le32(inode_get_mtime_sec(inode));
-	raw_inode->atime = cpu_to_le32(inode_get_atime_sec(inode));
-
+	inode->i_ino = ino;
 	inode_init_owner(&nop_mnt_idmap, inode, dir, mode);
-	inode->i_ino = inode_index;
-	ftfs_set_inode_data(inode);
+	simple_inode_init_ts(inode);
+	ftfs_set_inode_ops(inode);
 
 	if (insert_inode_locked(inode) < 0) {
-		brelse(bh);
 		error = -EIO;
-		goto rollback_sb;
+		goto put_inode;
 	}
-	/* Flush Inode to disk */
+
+	error = ftfs_add_dentry(dir, inode, qstr);
+	if (error)
+		goto discard_inode;
+
+	raw = (ft_inode *)bh->b_data + ino % FT_INODES_PER_BLOCK;
+	memset(raw, 0, sizeof(*raw));
+	ftfs_write_raw_inode(raw, inode);
 	mark_buffer_dirty(bh);
 
-	/* Flush SB to disk */
-	mark_buffer_dirty(super_info->bh);
-	ftfs_add_dentry(dir, inode, qstr);
+	info->bh = bh;
+	info->inode = raw;
+	inode->i_private = no_free_ptr(info);
 	return inode;
-rollback_sb:
-	super->data.free_inodes += 1;
-	super->inodes_bitmap[i] = cpu_to_le32(old_byte);
-	mark_buffer_dirty(super_info->bh);
-free_inode:
+
+discard_inode:
+	clear_nlink(inode);
+	discard_new_inode(inode);
+	goto free_bh;
+put_inode:
 	iput(inode);
-err:
+free_bh:
+	brelse(bh);
+free_ino:
+	ftfs_free_ino(sb, ino);
 	return ERR_PTR(error);
 }
 

@@ -1,6 +1,43 @@
 // SPDX-License-Identifier: GPL-2.0
 #include "ft_fs.h"
 
+static int fortytwofs_mkdir(struct mnt_idmap *idmap,
+			    struct inode *dir, struct dentry *dentry,
+			    umode_t mode)
+{
+	struct inode *inode;
+	int err;
+
+	inode_inc_link_count(dir);
+
+	inode = fortytwofs_new_inode(dir, S_IFDIR | mode, &dentry->d_name);
+	err = PTR_ERR(inode);
+	if (IS_ERR(inode))
+		goto out_dir;
+
+	inode_inc_link_count(inode);
+	err = ftfs_make_empty(inode, dir);
+	if (err)
+		goto out_fail;
+
+	/*
+	 * Clears the new flag from inode otherwise all other code waits on
+	 * it to disappear which never happens and we get splats.
+	 */
+	d_instantiate_new(dentry, inode);
+	return 0;
+out_fail:
+	/*
+	 * Necessary because iput called by discard_new_inode spins
+	 * while i_nlink > 0
+	 */
+	clear_nlink(inode);
+	discard_new_inode(inode);
+out_dir:
+	inode_dec_link_count(dir);
+	return err;
+}
+
 static int fortytwofs_create(struct mnt_idmap *idmap,
 			     struct inode *dir, struct dentry *dentry,
 			     umode_t mode, bool excl)
@@ -11,7 +48,7 @@ static int fortytwofs_create(struct mnt_idmap *idmap,
 
 	if (IS_ERR(inode))
 		return PTR_ERR(inode);
-	d_instantiate(dentry, inode);
+	d_instantiate_new(dentry, inode);
 	return 0;
 }
 
@@ -30,7 +67,7 @@ const struct inode_operations fortytwofs_dir_inode_operations = {
 	// .link		= fortytwofs_link,
 	// .unlink		= fortytwofs_unlink,
 	// .symlink		= fortytwofs_symlink,
-	// .mkdir		= fortytwofs_mkdir,
+	.mkdir			= fortytwofs_mkdir,
 	// .rmdir		= fortytwofs_rmdir,
 	// .mknod		= fortytwofs_mknod,
 	// .rename		= fortytwofs_rename,
