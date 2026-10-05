@@ -12,7 +12,7 @@ static const struct inode_operations fortyfs_inode_operations = {
 	// .fileattr_set	= fortytwofs_fileattr_set,
 };
 
-void ftfs_set_inode_ops(struct inode *inode)
+static void ftfs_set_inode_ops(struct inode *inode)
 {
 	inode->i_op = &fortyfs_inode_operations;
 	if (S_ISREG(inode->i_mode)) {
@@ -23,7 +23,7 @@ void ftfs_set_inode_ops(struct inode *inode)
 	}
 }
 
-void ftfs_set_inode_data(struct inode *inode)
+static void ftfs_set_inode_data(struct inode *inode)
 {
 	ft_inode_info *info = (ft_inode_info *)inode->i_private;
 	ft_inode *raw = info->inode;

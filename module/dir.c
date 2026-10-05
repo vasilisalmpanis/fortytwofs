@@ -99,7 +99,7 @@ int ftfs_lookup_ino(struct inode *dir, const struct qstr *name,
 /*
  * returns 0 if nothing found
  */
-int ftfs_free_space_for_dentry(struct super_block *sb,
+static int ftfs_free_space_for_dentry(struct super_block *sb,
 			       __u32 block,
 			       __u8 lvl,
 			       int *dentry_idx)
