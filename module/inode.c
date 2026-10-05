@@ -152,12 +152,12 @@ struct inode *fortyfs_iget(struct super_block *sb, unsigned long ino)
 {
 	struct inode *inode;
 	struct buffer_head *bh;
-	ft_super *super_ft = sb->s_fs_info;
+	ft_super_info *super_info = sb->s_fs_info;
 	ft_inode *raw;
 	int block;
 	int ino_in_block;
 
-	if (ino >= super_ft->data.inodes_count)
+	if (ino >= super_info->super->data.inodes_count)
 		return ERR_PTR(-EINVAL);
 
 	inode = iget_locked(sb, ino);

@@ -4,6 +4,7 @@
 #define FT_FS_MAGIC                     0x46573432
 #define FT_BLOCK_SIZE                   4096
 #define FT_MIN_BLOCKS                   4
+#define FT_MAX_NAME_LEN                 250
 
 typedef struct super_data
 {
@@ -57,7 +58,7 @@ typedef struct ft_dentry
 {
     __u32    ino_idx;
     __u8     type;
-    char     name[251];
+    char     name[FT_MAX_NAME_LEN + 1];
 } __attribute__((packed)) ft_dentry;
 
 #define FT_INODE_BITMAP_SIZE            (FT_BLOCK_SIZE - sizeof(ft_super_data))

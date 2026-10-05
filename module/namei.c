@@ -56,9 +56,21 @@ static struct dentry *fortytwofs_lookup(struct inode *dir,
 					struct dentry *dentry,
 					unsigned int flags)
 {
-	// return ERR_PTR(-ENOENT);
-	// TODO: implement lookup for existing inodes
-	return d_splice_alias(NULL, dentry);
+	struct inode *inode = NULL;
+	unsigned long ino;
+	int err;
+
+	if (dentry->d_name.len >= FT_MAX_NAME_LEN)
+		return ERR_PTR(-ENAMETOOLONG);
+	err = ftfs_lookup_ino(dir, &dentry->d_name, &ino);
+	if (!err) {
+		inode = fortyfs_iget(dir->i_sb, ino);
+		if (IS_ERR(inode))
+			return ERR_CAST(inode);
+	} else if (err != -ENOENT) {
+		return ERR_PTR(err);
+	}
+	return d_splice_alias(inode, dentry);
 }
 
 const struct inode_operations fortytwofs_dir_inode_operations = {
