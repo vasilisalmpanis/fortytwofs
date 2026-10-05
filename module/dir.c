@@ -38,11 +38,62 @@ static int fortytwofs_readdir(struct file *file, struct dir_context *ctx)
 			continue;
 		if (!dir_emit(ctx, dentry->name, strlen(dentry->name),
 			      le32_to_cpu(dentry->ino_idx),
-			      fs_ftype_to_dtype(dentry->type)))
+			      dentry->type))
 			break;
 	}
 	brelse(bh);
 	return 0;
+}
+
+/*
+ * Returns 0 and sets ino if found, -ENOENT if not.
+ */
+static int ftfs_find_dentry(struct super_block *sb, __u32 block, __u8 lvl,
+			    const struct qstr *name, unsigned long *ino)
+{
+	struct buffer_head *bh;
+	int ret = -ENOENT;
+
+	if (block == 0)
+		return -ENOENT;
+	bh = sb_bread(sb, block);
+	if (!bh)
+		return -EIO;
+	if (lvl == 0) {
+		ft_dentry *dentry_arr = (ft_dentry *)bh->b_data;
+
+		for (int idx = 0; idx < FT_DENTRY_PER_BLOCK; idx++) {
+			ft_dentry *de = &dentry_arr[idx];
+
+			if (de->type == FT42_FREE)
+				continue;
+			if (strlen(de->name) == name->len &&
+			    !memcmp(de->name, name->name, name->len)) {
+				*ino = le32_to_cpu(de->ino_idx);
+				ret = 0;
+				break;
+			}
+		}
+	} else {
+		__u32 *blks = (__u32 *)bh->b_data;
+
+		for (int i = 0; i < FT_PTRS_PER_BLOCK; i++) {
+			ret = ftfs_find_dentry(sb, blks[i], lvl - 1, name, ino);
+			if (ret != -ENOENT)
+				break;
+		}
+	}
+	brelse(bh);
+	return ret;
+}
+
+int ftfs_lookup_ino(struct inode *dir, const struct qstr *name,
+		    unsigned long *ino)
+{
+	ft_inode_info *info = (ft_inode_info *)dir->i_private;
+
+	return ftfs_find_dentry(dir->i_sb, le32_to_cpu(info->inode->block),
+				info->inode->level, name, ino);
 }
 
 /*
