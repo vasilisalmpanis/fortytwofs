@@ -12,6 +12,7 @@
 #include <linux/string.h>
 #include <linux/types.h>
 #include <linux/byteorder/generic.h>
+#include <linux/mpage.h>
 #include "fortytwofs.h"
 
 typedef struct fortytwofs_super_info {

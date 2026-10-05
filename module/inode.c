@@ -12,11 +12,139 @@ static const struct inode_operations fortyfs_inode_operations = {
 	// .fileattr_set	= fortytwofs_fileattr_set,
 };
 
+static int ftfs_find_block(struct super_block *sb, __u32 block, __u8 lvl,
+			   sector_t logical_block, __u32 *accumulator,
+			   int create, __u32 *result, struct inode *target,
+			   bool *new)
+{
+	ft_inode_info *inode_info = target->i_private;
+	ft_inode *raw_inode = inode_info->inode;
+	struct buffer_head *bh;
+	int ret = -ENOENT;
+
+	if (block == 0) {
+		/* We never hit this case apart from a file with no blocks */
+		if (!create)
+			return -ENOENT;
+		ret = ftfs_zalloc_new_block(sb);
+		if (ret < 0)
+			return ret;
+		inode_set_ctime_current(target);
+		raw_inode->block = ret;
+		block = ret;
+		mark_buffer_dirty(inode_info->bh);
+		*new = true;
+	}
+	bh = sb_bread(sb, block);
+	if (!bh)
+		return -EIO;
+
+	if (lvl == 0) {
+		if (*accumulator == logical_block) {
+			ret = 0;
+			*result = block;
+		}
+		*accumulator += 1;
+	} else {
+		__u32 *blks = (__u32 *)bh->b_data;
+
+		for (int i = 0; i < FT_PTRS_PER_BLOCK; i++) {
+			if (blks[i] == 0) {
+				/* We need to account for HOLE */
+				*accumulator += lvl == 1 ? 1 :
+					int_pow(FT_PTRS_PER_BLOCK, lvl - 1);
+				if (*accumulator > logical_block) {
+					ret = 0;
+					break;
+				}
+				continue;
+			}
+			ret = ftfs_find_block(sb, blks[i], lvl - 1,
+					      logical_block, accumulator,
+					      create, result, target, new);
+			if (ret != -ENOENT)
+				break;
+		}
+	}
+	brelse(bh);
+	return ret;
+}
+
+static int ftfs_get_or_create_block(struct inode *inode, sector_t logical_block,
+				    int create, u32 *result_block, bool *new)
+{
+	struct super_block *sb = inode->i_sb;
+	ft_inode_info *inode_info = inode->i_private;
+	ft_inode *raw_inode = inode_info->inode;
+	__u32 accumulator = 0;
+
+	return ftfs_find_block(sb, raw_inode->block, raw_inode->level,
+			       logical_block, &accumulator, create,
+			       result_block, inode, new);
+}
+
+/**
+ * @inode: Target inode
+ * @block: logical block either to be read or written.
+ * @bh_result: the variable that the buffer_head will be stored in.
+ * @create: whether a new block should be allocated or not.
+ */
+static int ftfs_get_block(struct inode *inode, sector_t block,
+			  struct buffer_head *bh_result, int create)
+{
+	bool new = false;
+	__u32 blk = 0;
+	int err;
+
+	err = ftfs_get_or_create_block(inode, block, create, &blk, &new);
+	if (err)
+		return err;
+	if (blk) {
+		map_bh(bh_result, inode->i_sb, blk);
+		if (new)
+			set_buffer_new(bh_result);
+	}
+	return 0;
+}
+
+static int ftfs_writepages(struct address_space *mapping,
+			   struct writeback_control *wbc)
+{
+	return mpage_writepages(mapping, wbc, ftfs_get_block);
+}
+
+static int ftfs_read_folio(struct file *file, struct folio *folio)
+{
+	return block_read_full_folio(folio, ftfs_get_block);
+}
+
+static int ftfs_write_begin(struct file *file, struct address_space *mapping,
+			    loff_t pos, unsigned int len,
+			struct folio **foliop, void **fsdata)
+{
+	int ret;
+
+	ret = block_write_begin(mapping, pos, len, foliop, ftfs_get_block);
+
+	return ret;
+}
+
+static const struct address_space_operations ftfs_address_space_ops = {
+	.dirty_folio		= block_dirty_folio,
+	.invalidate_folio	= block_invalidate_folio,
+	.read_folio		= ftfs_read_folio,
+	.write_begin		= ftfs_write_begin,
+	.write_end		= generic_write_end,
+	.writepages		= ftfs_writepages,
+	.direct_IO		= noop_direct_IO,
+};
+
 static void ftfs_set_inode_ops(struct inode *inode)
 {
 	inode->i_op = &fortyfs_inode_operations;
 	if (S_ISREG(inode->i_mode)) {
 		inode->i_fop = &fortytwofs_file_ops;
+		inode->i_mapping->a_ops = &ftfs_address_space_ops;
 	} else if (S_ISDIR(inode->i_mode)) {
 		inode->i_op = &fortytwofs_dir_inode_operations;
 		inode->i_fop = &fortytwofs_dir_ops;
