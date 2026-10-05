@@ -4,6 +4,7 @@
 const struct file_operations fortytwofs_file_ops = {
 	// .llseek	= generic_file_llseek,
 	// .read_iter	= fortytwofs_read_iter,
-	// .write_iter	= fortytwofs_write_iter,
+	.write_iter = generic_file_write_iter,
+	.read_iter = generic_file_read_iter,
 	// .open	= fortytwofs_open,
 };
