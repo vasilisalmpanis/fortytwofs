@@ -117,6 +117,8 @@ int ftfs_add_dentry(struct inode *dir, struct inode *child,
 			return -ENOSPC;
 	}
 	bh = sb_bread(dir->i_sb, block);
+	if (!bh)
+		return -ENOMEM;
 	dentry_arr = (ft_dentry *)bh->b_data;
 	new_dentry = dentry_arr + dentry_idx;
 	new_dentry->ino_idx = child->i_ino;
@@ -125,6 +127,28 @@ int ftfs_add_dentry(struct inode *dir, struct inode *child,
 	mark_buffer_dirty(bh);
 	brelse(bh);
 	return 0;
+}
+
+int ftfs_make_empty(struct inode *inode, struct inode *parent)
+{
+	ft_inode_info *info = inode->i_private;
+	struct qstr dot    = QSTR_INIT(".", 1);
+	struct qstr dotdot = QSTR_INIT("..", 2);
+	int block, err;
+
+	block = ftfs_zalloc_new_block(inode->i_sb);
+	if (block < 0)
+		return block;
+	info->inode->block = cpu_to_le32(block);
+	info->inode->level = 0;
+	info->inode->size = FT_BLOCK_SIZE;
+	mark_buffer_dirty(info->bh);
+	inode->i_size = FT_BLOCK_SIZE;
+
+	err = ftfs_add_dentry(inode, inode, &dot);
+	if (!err)
+		err = ftfs_add_dentry(inode, parent, &dotdot);
+	return err;
 }
 
 const struct file_operations fortytwofs_dir_ops = {
