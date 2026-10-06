@@ -6,6 +6,10 @@ struct fortytwo_fs_context {
 	kgid_t		s_resgid;
 };
 
+static const struct super_operations ftfs_sops = {
+	.write_inode	= ftfs_write_inode,
+};
+
 static int fortytwofs_fill_super(struct super_block *sb, struct fs_context *fc)
 {
 	struct buffer_head *bh;
@@ -36,6 +40,7 @@ static int fortytwofs_fill_super(struct super_block *sb, struct fs_context *fc)
 		return -EINVAL;
 	}
 	sb->s_magic = super_ft->super->data.magic;
+	sb->s_op = &ftfs_sops;
 	sb->s_fs_info = no_free_ptr(super_ft);
 	sb->s_max_links = 0xFF;
 

@@ -13,6 +13,7 @@
 #include <linux/types.h>
 #include <linux/byteorder/generic.h>
 #include <linux/mpage.h>
+#include <linux/writeback.h>
 #include "fortytwofs.h"
 
 typedef struct fortytwofs_super_info {
@@ -26,6 +27,7 @@ typedef struct fortytwofs_inode_info {
 } ft_inode_info;
 
 struct inode *fortyfs_iget(struct super_block *sb, unsigned long ino);
+int ftfs_write_inode(struct inode *inode, struct writeback_control *wbc);
 struct inode *fortytwofs_new_inode(struct inode *dir, umode_t mode,
 				   const struct qstr *qstr);
 int ftfs_add_dentry(struct inode *dir, struct inode *child,

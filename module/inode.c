@@ -210,6 +210,21 @@ static void ftfs_write_raw_inode(ft_inode *raw, struct inode *inode)
 	raw->atime = cpu_to_le32(inode_get_atime_sec(inode));
 }
 
+int ftfs_write_inode(struct inode *inode, struct writeback_control *wbc)
+{
+	ft_inode_info *info = inode->i_private;
+
+	ftfs_write_raw_inode(info->inode, inode);
+	mark_buffer_dirty(info->bh);
+
+	if (wbc->sync_mode == WB_SYNC_ALL) {
+		sync_dirty_buffer(info->bh);
+		if (buffer_req(info->bh) && !buffer_uptodate(info->bh))
+			return -EIO;
+	}
+	return 0;
+}
+
 struct inode *fortytwofs_new_inode(struct inode *dir, umode_t mode,
 				   const struct qstr *qstr)
 {
