@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 #include "ft_fs.h"
 
-static int fortytwofs_dir_open(struct inode *inode, struct file *file)
+static int ftfs_dir_open(struct inode *inode, struct file *file)
 {
 	file->private_data = kzalloc(sizeof(u64), GFP_KERNEL);
 	if (!file->private_data)
@@ -9,13 +9,13 @@ static int fortytwofs_dir_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static int fortytwofs_dir_release(struct inode *inode, struct file *file)
+static int ftfs_dir_release(struct inode *inode, struct file *file)
 {
 	kfree(file->private_data);
 	return 0;
 }
 
-static int fortytwofs_readdir(struct file *file, struct dir_context *ctx)
+static int ftfs_readdir(struct file *file, struct dir_context *ctx)
 {
 	struct inode *inode = file_inode(file);
 	ft_inode_info *info = (ft_inode_info *)inode->i_private;
@@ -202,12 +202,12 @@ int ftfs_make_empty(struct inode *inode, struct inode *parent)
 	return err;
 }
 
-const struct file_operations fortytwofs_dir_ops = {
-	.open			= fortytwofs_dir_open,
-	.release		= fortytwofs_dir_release,
-	// .llseek		= fortytwofs_dir_llseek,
+const struct file_operations ftfs_dir_ops = {
+	.open			= ftfs_dir_open,
+	.release		= ftfs_dir_release,
+	// .llseek		= ftfs_dir_llseek,
 	.read			= generic_read_dir,
-	.iterate_shared		= fortytwofs_readdir,
-	// .unlocked_ioctl	= fortytwofs_ioctl,
-	// .fsync		= fortytwofs_fsync,
+	.iterate_shared		= ftfs_readdir,
+	// .unlocked_ioctl	= ftfs_ioctl,
+	// .fsync		= ftfs_fsync,
 };

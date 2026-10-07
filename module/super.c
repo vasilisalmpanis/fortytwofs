@@ -10,7 +10,7 @@ static const struct super_operations ftfs_sops = {
 	.write_inode	= ftfs_write_inode,
 };
 
-static int fortytwofs_fill_super(struct super_block *sb, struct fs_context *fc)
+static int ftfs_fill_super(struct super_block *sb, struct fs_context *fc)
 {
 	struct buffer_head *bh;
 	struct inode *root;
@@ -59,7 +59,7 @@ static int fortytwofs_fill_super(struct super_block *sb, struct fs_context *fc)
 	return 0;
 }
 
-static void fortytwofs_kill_sb(struct super_block *sb)
+static void ftfs_kill_sb(struct super_block *sb)
 {
 	ft_super *super_ft = sb->s_fs_info;
 
@@ -67,24 +67,24 @@ static void fortytwofs_kill_sb(struct super_block *sb)
 	kfree(super_ft);
 }
 
-static int fortytwofs_get_tree(struct fs_context *fc)
+static int ftfs_get_tree(struct fs_context *fc)
 {
-	return get_tree_bdev(fc, fortytwofs_fill_super);
+	return get_tree_bdev(fc, ftfs_fill_super);
 }
 
-static void fortytwofs_free_fc(struct fs_context *fc)
+static void ftfs_free_fc(struct fs_context *fc)
 {
 	kfree(fc->fs_private);
 }
 
-static const struct fs_context_operations fortytwofs_context_ops = {
+static const struct fs_context_operations ftfs_context_ops = {
 	.parse_param	= NULL,
-	.get_tree	= fortytwofs_get_tree,
+	.get_tree	= ftfs_get_tree,
 	.reconfigure	= NULL,
-	.free		= fortytwofs_free_fc,
+	.free		= ftfs_free_fc,
 };
 
-static int fortytwofs_init_fs_context(struct fs_context *fc)
+static int ftfs_init_fs_context(struct fs_context *fc)
 {
 	struct fortytwo_fs_context *ctx = NULL;
 
@@ -92,7 +92,7 @@ static int fortytwofs_init_fs_context(struct fs_context *fc)
 	if (!ctx)
 		return -ENOMEM;
 	fc->fs_private = ctx;
-	fc->ops = &fortytwofs_context_ops;
+	fc->ops = &ftfs_context_ops;
 	return 0;
 }
 
@@ -152,30 +152,30 @@ int ftfs_zalloc_new_block(struct super_block *sb)
 	return block;
 }
 
-static const struct fs_parameter_spec fortytwofs_param_spec[] = {
+static const struct fs_parameter_spec ftfs_param_spec[] = {
 	{}
 };
 
-static struct file_system_type fortytwofs_fs_type = {
+static struct file_system_type ftfs_fs_type = {
 	.owner			= THIS_MODULE,
 	.name			= "fortytwofs",
-	.kill_sb		= fortytwofs_kill_sb,
+	.kill_sb		= ftfs_kill_sb,
 	.fs_flags		= FS_REQUIRES_DEV,
-	.init_fs_context	= fortytwofs_init_fs_context,
-	.parameters		= fortytwofs_param_spec,
+	.init_fs_context	= ftfs_init_fs_context,
+	.parameters		= ftfs_param_spec,
 };
 
 static int __init fortytwofs_init(void)
 {
 	pr_info("Hello from fortytwofs\n");
-	return register_filesystem(&fortytwofs_fs_type);
+	return register_filesystem(&ftfs_fs_type);
 }
 module_init(fortytwofs_init);
 
 static void __exit fortytwofs_exit(void)
 {
 	pr_info("Goodbye from fortytwofs\n");
-	unregister_filesystem(&fortytwofs_fs_type);
+	unregister_filesystem(&ftfs_fs_type);
 }
 module_exit(fortytwofs_exit);
 

@@ -2,14 +2,14 @@
 #include "ft_fs.h"
 
 static const struct inode_operations fortyfs_inode_operations = {
-	// .listxattr		= fortytwofs_listxattr,
-	// .getattr		= fortytwofs_getattr,
-	// .setattr		= fortytwofs_setattr,
-	// .get_inode_acl	= fortytwofs_get_acl,
-	// .set_acl		= fortytwofs_set_acl,
-	// .fiemap		= fortytwofs_fiemap,
-	// .fileattr_get	= fortytwofs_fileattr_get,
-	// .fileattr_set	= fortytwofs_fileattr_set,
+	// .listxattr		= ftfs_listxattr,
+	// .getattr		= ftfs_getattr,
+	// .setattr		= ftfs_setattr,
+	// .get_inode_acl	= ftfs_get_acl,
+	// .set_acl		= ftfs_set_acl,
+	// .fiemap		= ftfs_fiemap,
+	// .fileattr_get	= ftfs_fileattr_get,
+	// .fileattr_set	= ftfs_fileattr_set,
 };
 
 static int get_lvl_idxs(__u32 logical_blk, __u32 (*idxs)[3])
@@ -168,11 +168,11 @@ static void ftfs_set_inode_ops(struct inode *inode)
 {
 	inode->i_op = &fortyfs_inode_operations;
 	if (S_ISREG(inode->i_mode)) {
-		inode->i_fop = &fortytwofs_file_ops;
+		inode->i_fop = &ftfs_file_ops;
 		inode->i_mapping->a_ops = &ftfs_address_space_ops;
 	} else if (S_ISDIR(inode->i_mode)) {
-		inode->i_op = &fortytwofs_dir_inode_operations;
-		inode->i_fop = &fortytwofs_dir_ops;
+		inode->i_op = &ftfs_dir_inode_operations;
+		inode->i_fop = &ftfs_dir_ops;
 	}
 }
 
@@ -250,8 +250,8 @@ int ftfs_write_inode(struct inode *inode, struct writeback_control *wbc)
 	return 0;
 }
 
-struct inode *fortytwofs_new_inode(struct inode *dir, umode_t mode,
-				   const struct qstr *qstr)
+struct inode *ftfs_new_inode(struct inode *dir, umode_t mode,
+			     const struct qstr *qstr)
 {
 	struct super_block *sb = dir->i_sb;
 	struct buffer_head *bh;
