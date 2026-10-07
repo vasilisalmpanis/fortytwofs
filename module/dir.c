@@ -202,6 +202,134 @@ int ftfs_make_empty(struct inode *inode, struct inode *parent)
 	return err;
 }
 
+/**
+ * writes ft_dentry matched to res (if it is not NULL) and buffer head
+ *    containing it to bh_res (if it is not NULL)
+ * bh_else should be freed with brelse after use
+ * returns 0 if found (cmp returned false on some dentry)
+ * returns 1 if checked all dentries and cmp was always true
+ * returns negative value if error occurred
+ */
+static int ftfs_check_dentries_until_false(struct super_block *sb,
+					   __u32 block, __u8 lvl,
+					   bool (*cmp)(ft_dentry *, void *),
+					   void *cmp_arg,
+					   ft_dentry **res,
+					   struct buffer_head **bh_res)
+{
+	struct buffer_head *bh;
+	int ret = 1;
+
+	if (block == 0)
+		return -ENOENT;
+	bh = sb_bread(sb, block);
+	if (!bh)
+		return -EIO;
+	if (lvl == 0) {
+		ft_dentry *dentry_arr = (ft_dentry *)bh->b_data;
+
+		for (int idx = 0; idx < FT_DENTRY_PER_BLOCK; idx++) {
+			ft_dentry *de = &dentry_arr[idx];
+
+			if (!cmp(de, cmp_arg)) {
+				if (res)
+					*res = de;
+				ret = 0;
+				if (bh_res)
+					*bh_res = bh;
+				else
+					brelse(bh);
+				goto success;
+			}
+		}
+	} else {
+		__u32 *blks = (__u32 *)bh->b_data;
+
+		for (int i = 0; i < FT_PTRS_PER_BLOCK; i++) {
+			ret = ftfs_check_dentries_until_false(sb, blks[i],
+							      lvl - 1,
+							      cmp, cmp_arg,
+							      res, bh_res);
+			if (ret == -ENOENT || ret == 1)
+				continue;
+			else
+				break;
+		}
+	}
+	brelse(bh);
+success:
+	return ret;
+}
+
+static bool is_initial_dots(ft_dentry *dentry, void *unused)
+{
+	ssize_t len;
+
+	(void)unused;
+	if (dentry->type == FT42_FREE)
+		return true;
+	len = strlen(dentry->name);
+	if (len > 2)
+		return false;
+	if (dentry->name[0] != '.')
+		return false;
+	if (len == 1)
+		return true;
+	if (dentry->name[1] == '.')
+		return true;
+	return false;
+}
+
+/**
+ * returns 1 if dir is empty, 0 otherwise, can return error (negative value)
+ */
+int ftfs_empty_dir(struct inode *inode)
+{
+	ft_inode_info *info = inode->i_private;
+	ft_inode *raw = info->inode;
+
+	return ftfs_check_dentries_until_false(inode->i_sb, raw->block,
+					       raw->level,
+					       is_initial_dots, NULL,
+					       NULL, NULL);
+}
+
+static bool match_name(ft_dentry *dentry, void *arg)
+{
+	ssize_t len;
+	const struct qstr *name = arg;
+
+	if (dentry->type == FT42_FREE)
+		return true;
+	len = strlen(dentry->name);
+	if (name->len != len)
+		return true;
+	if (strcmp(dentry->name, name->name))
+		return true;
+	return false;
+}
+
+int ftfs_remove_dentry(struct inode *inode, const struct qstr *name)
+{
+	ft_inode_info *info = inode->i_private;
+	ft_inode *raw = info->inode;
+	struct buffer_head *bh = NULL;
+	ft_dentry *res = NULL;
+	int err = 0;
+
+	err = ftfs_check_dentries_until_false(inode->i_sb, raw->block,
+					      raw->level, match_name,
+					      (void *)name, &res, &bh);
+	if (err < 0)
+		return err;
+	if (err == 1)
+		return -ENOENT;
+	memset(res, 0, sizeof(*res));
+	mark_buffer_dirty(bh);
+	brelse(bh);
+	return 0;
+}
+
 const struct file_operations ftfs_dir_ops = {
 	.open			= ftfs_dir_open,
 	.release		= ftfs_dir_release,
