@@ -12,75 +12,100 @@ static const struct inode_operations fortyfs_inode_operations = {
 	// .fileattr_set	= fortytwofs_fileattr_set,
 };
 
-static int ftfs_find_block(struct super_block *sb, __u32 block, __u8 lvl,
-			   sector_t logical_block, __u32 *accumulator,
-			   int create, __u32 *result, struct inode *target,
-			   bool *new)
+static int get_lvl_idxs(__u32 logical_blk, __u32 (*idxs)[3])
 {
-	ft_inode_info *inode_info = target->i_private;
-	ft_inode *raw_inode = inode_info->inode;
-	struct buffer_head *bh;
-	int ret = -ENOENT;
+	__u32 blks_lvl_1 = FT_PTRS_PER_BLOCK;
+	__u32 blks_lvl_2 = blks_lvl_1 * FT_PTRS_PER_BLOCK;
+	__u32 blks_lvl_3 = blks_lvl_2 * FT_PTRS_PER_BLOCK;
+	__u32 rem = logical_blk;
 
-	if (block == 0) {
-		/* We never hit this case apart from a file with no blocks */
+	if (logical_blk >= blks_lvl_3)
+		return -ENOSPC;
+	(*idxs)[0] = logical_blk / blks_lvl_2;
+	rem = rem - ((*idxs)[0] * blks_lvl_2);
+	(*idxs)[1] = rem / blks_lvl_1;
+	rem = rem - ((*idxs)[1] * blks_lvl_1);
+	(*idxs)[2] = rem;
+	return 0;
+}
+
+static int get_or_create_blk(struct inode *inode, sector_t logical_blk,
+			     __u32 *res_blk, bool create, bool *new)
+{
+	ft_inode_info *info = inode->i_private;
+	ft_inode *raw = info->inode;
+	struct buffer_head *bh = NULL;
+	__u32 idxs[3] = {0};
+	int ret = 0;
+	__u8 needed_lvl;
+	__u32 *ptrs;
+	__u32 blk;
+
+	*res_blk = 0;
+	ret = get_lvl_idxs(logical_blk, &idxs);
+	if (ret)
+		return ret;
+
+	needed_lvl = idxs[0] ? 3 : idxs[1] ? 2 : idxs[2] ? 1 : 0;
+
+	if (raw->level < needed_lvl) {
 		if (!create)
-			return -ENOENT;
-		ret = ftfs_zalloc_new_block(sb);
+			return 0;
+		while (raw->level < needed_lvl) {
+			ret = ftfs_next_level(inode);
+			if (ret)
+				return ret;
+		}
+	}
+
+	if (raw->block == 0) {
+		if (!create)
+			return 0;
+		ret = ftfs_zalloc_new_block(inode->i_sb);
 		if (ret < 0)
 			return ret;
-		inode_set_ctime_current(target);
-		raw_inode->block = ret;
-		block = ret;
-		mark_buffer_dirty(inode_info->bh);
-		*new = true;
+		raw->block = ret;
+		mark_buffer_dirty(info->bh);
+		if (raw->level == 0)
+			*new = true;
 	}
-	bh = sb_bread(sb, block);
-	if (!bh)
-		return -EIO;
 
-	if (lvl == 0) {
-		if (*accumulator == logical_block) {
-			ret = 0;
-			*result = block;
-		}
-		*accumulator += 1;
-	} else {
-		__u32 *blks = (__u32 *)bh->b_data;
+	blk = raw->block;
+	for (__u8 lvl = raw->level; lvl > 0; lvl--) {
+		__u32 idx = idxs[3 - lvl];
 
-		for (int i = 0; i < FT_PTRS_PER_BLOCK; i++) {
-			if (blks[i] == 0) {
-				/* We need to account for HOLE */
-				*accumulator += lvl == 1 ? 1 :
-					int_pow(FT_PTRS_PER_BLOCK, lvl - 1);
-				if (*accumulator > logical_block) {
-					ret = 0;
-					break;
-				}
-				continue;
+		bh = sb_bread(inode->i_sb, blk);
+		if (!bh)
+			return -EIO;
+		ptrs = (__u32 *)bh->b_data;
+		if (ptrs[idx] == 0) {
+			if (!create) {
+				brelse(bh);
+				return 0;
 			}
-			ret = ftfs_find_block(sb, blks[i], lvl - 1,
-					      logical_block, accumulator,
-					      create, result, target, new);
-			if (ret != -ENOENT)
-				break;
+			ret = ftfs_zalloc_new_block(inode->i_sb);
+			if (ret < 0) {
+				brelse(bh);
+				return ret;
+			}
+			ptrs[idx] = ret;
+			mark_buffer_dirty(bh);
+			if (lvl == 1)
+				*new = true;
 		}
+		blk = ptrs[idx];
+		brelse(bh);
 	}
-	brelse(bh);
-	return ret;
+
+	*res_blk = blk;
+	return 0;
 }
 
 static int ftfs_get_or_create_block(struct inode *inode, sector_t logical_block,
 				    int create, u32 *result_block, bool *new)
 {
-	struct super_block *sb = inode->i_sb;
-	ft_inode_info *inode_info = inode->i_private;
-	ft_inode *raw_inode = inode_info->inode;
-	__u32 accumulator = 0;
-
-	return ftfs_find_block(sb, raw_inode->block, raw_inode->level,
-			       logical_block, &accumulator, create,
-			       result_block, inode, new);
+	return get_or_create_blk(inode, logical_block, result_block,
+				 create, new);
 }
 
 /**
@@ -120,11 +145,11 @@ static int ftfs_read_folio(struct file *file, struct folio *folio)
 
 static int ftfs_write_begin(struct file *file, struct address_space *mapping,
 			    loff_t pos, unsigned int len,
-			struct folio **foliop, void **fsdata)
+			struct page **pagep, void **fsdata)
 {
 	int ret;
 
-	ret = block_write_begin(mapping, pos, len, foliop, ftfs_get_block);
+	ret = block_write_begin(mapping, pos, len, pagep, ftfs_get_block);
 
 	return ret;
 }
