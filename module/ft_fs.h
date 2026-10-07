@@ -16,19 +16,19 @@
 #include <linux/writeback.h>
 #include "fortytwofs.h"
 
-typedef struct fortytwofs_super_info {
+typedef struct ftfs_super_info {
 	struct buffer_head *bh;
 	ft_super *super;
 } ft_super_info;
 
-typedef struct fortytwofs_inode_info {
+typedef struct ftfs_inode_info {
 	struct buffer_head *bh;
 	ft_inode *inode;
 } ft_inode_info;
 
 struct inode *fortyfs_iget(struct super_block *sb, unsigned long ino);
 int ftfs_write_inode(struct inode *inode, struct writeback_control *wbc);
-struct inode *fortytwofs_new_inode(struct inode *dir, umode_t mode,
+struct inode *ftfs_new_inode(struct inode *dir, umode_t mode,
 				   const struct qstr *qstr);
 int ftfs_add_dentry(struct inode *dir, struct inode *child,
 		    const struct qstr *qstr);
@@ -39,8 +39,8 @@ int ftfs_alloc_new_block(struct super_block *sb);
 int ftfs_zalloc_new_block(struct super_block *sb);
 int ftfs_next_level(struct inode *inode);
 
-extern const struct file_operations fortytwofs_file_ops;
-extern const struct file_operations fortytwofs_dir_ops;
-extern const struct inode_operations fortytwofs_dir_inode_operations;
+extern const struct file_operations ftfs_file_ops;
+extern const struct file_operations ftfs_dir_ops;
+extern const struct inode_operations ftfs_dir_inode_operations;
 
 #endif /* _FT_FS_H */
