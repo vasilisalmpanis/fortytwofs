@@ -37,6 +37,27 @@ out_dir:
 	return err;
 }
 
+static int ftfs_rmdir(struct inode *dir, struct dentry *dentry)
+{
+	struct inode *inode = d_inode(dentry);
+	int err = -ENOTEMPTY;
+
+	err = ftfs_empty_dir(inode);
+	if (err < 0)
+		return err;
+	if (err == 0)
+		return -ENOTEMPTY;
+	err = ftfs_remove_dentry(dir, &dentry->d_name);
+	if (err < 0)
+		return err;
+	inode->i_size = 0;
+	inode_set_ctime_to_ts(inode, inode_get_ctime(dir));
+	inode_dec_link_count(inode);
+	inode_dec_link_count(inode);
+	inode_dec_link_count(dir);
+	return 0;
+}
+
 static int ftfs_create(struct mnt_idmap *idmap, struct inode *dir,
 		       struct dentry *dentry, umode_t mode, bool excl)
 {
@@ -77,7 +98,7 @@ const struct inode_operations ftfs_dir_inode_operations = {
 	// .unlink		= ftfs_unlink,
 	// .symlink		= ftfs_symlink,
 	.mkdir			= ftfs_mkdir,
-	// .rmdir		= ftfs_rmdir,
+	.rmdir			= ftfs_rmdir,
 	// .mknod		= ftfs_mknod,
 	// .rename		= ftfs_rename,
 	// .listxattr		= ftfs_listxattr,

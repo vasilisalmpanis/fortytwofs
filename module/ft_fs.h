@@ -38,6 +38,8 @@ int ftfs_make_empty(struct inode *inode, struct inode *parent);
 int ftfs_alloc_new_block(struct super_block *sb);
 int ftfs_zalloc_new_block(struct super_block *sb);
 int ftfs_next_level(struct inode *inode);
+int ftfs_empty_dir(struct inode *inode);
+int ftfs_remove_dentry(struct inode *inode, const struct qstr *name);
 
 extern const struct file_operations ftfs_file_ops;
 extern const struct file_operations ftfs_dir_ops;

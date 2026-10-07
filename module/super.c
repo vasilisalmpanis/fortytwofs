@@ -8,6 +8,7 @@ struct fortytwo_fs_context {
 
 static const struct super_operations ftfs_sops = {
 	.write_inode	= ftfs_write_inode,
+	// .evict_inode	= ftfs_evict_inode,
 };
 
 static int ftfs_fill_super(struct super_block *sb, struct fs_context *fc)
