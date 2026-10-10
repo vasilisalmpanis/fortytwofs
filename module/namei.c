@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 #include "ft_fs.h"
+#include "linux/dcache.h"
+#include "linux/fs.h"
 
 static int ftfs_mkdir(struct mnt_idmap *idmap, struct inode *dir,
 		      struct dentry *dentry, umode_t mode)
@@ -105,10 +107,31 @@ static int ftfs_unlink(struct inode *dir, struct dentry *dentry)
 	return 0;
 }
 
+static int ftfs_link(struct dentry *old_dentry, struct inode *dir,
+		     struct dentry *new_dentry)
+{
+	struct inode *inode = d_inode(old_dentry);
+	int err;
+
+	inode_set_ctime_current(inode);
+	inode_inc_link_count(inode);
+	ihold(inode);
+
+	err = ftfs_add_dentry(dir, inode, &new_dentry->d_name);
+	if (err) {
+		inode_dec_link_count(inode);
+		iput(inode);
+		return err;
+	}
+
+	d_instantiate(new_dentry, inode);
+	return err;
+}
+
 const struct inode_operations ftfs_dir_inode_operations = {
 	.create			= ftfs_create,
 	.lookup			= ftfs_lookup,
-	// .link		= ftfs_link,
+	.link			= ftfs_link,
 	.unlink			= ftfs_unlink,
 	// .symlink		= ftfs_symlink,
 	.mkdir			= ftfs_mkdir,
