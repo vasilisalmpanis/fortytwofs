@@ -12,6 +12,10 @@ static const struct inode_operations fortyfs_inode_operations = {
 	// .fileattr_set	= ftfs_fileattr_set,
 };
 
+const struct inode_operations ftfs_symlink_inode_operations = {
+	.get_link	= page_get_link,
+};
+
 static int get_lvl_idxs(__u32 logical_blk, __u32 (*idxs)[3])
 {
 	__u32 blks_lvl_1 = FT_PTRS_PER_BLOCK;
@@ -173,6 +177,10 @@ static void ftfs_set_inode_ops(struct inode *inode)
 	} else if (S_ISDIR(inode->i_mode)) {
 		inode->i_op = &ftfs_dir_inode_operations;
 		inode->i_fop = &ftfs_dir_ops;
+	} else if (S_ISLNK(inode->i_mode)) {
+		inode->i_op = &ftfs_symlink_inode_operations;
+		inode_nohighmem(inode);
+		inode->i_mapping->a_ops = &ftfs_address_space_ops;
 	}
 }
 

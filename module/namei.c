@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
 #include "ft_fs.h"
-#include "linux/dcache.h"
-#include "linux/fs.h"
 
 static int ftfs_mkdir(struct mnt_idmap *idmap, struct inode *dir,
 		      struct dentry *dentry, umode_t mode)
@@ -128,12 +126,35 @@ static int ftfs_link(struct dentry *old_dentry, struct inode *dir,
 	return err;
 }
 
+static int ftfs_symlink(struct mnt_idmap *idmap, struct inode *dir,
+			struct dentry *dentry, const char *linkname)
+{
+	struct inode *new_inode;
+	int len = strlen(linkname);
+	int err;
+
+	if (len + 1 > FT_BLOCK_SIZE)
+		return -ENAMETOOLONG;
+
+	new_inode = ftfs_new_inode(dir, S_IFLNK | 0777, &dentry->d_name);
+	if (IS_ERR(new_inode))
+		return PTR_ERR(new_inode);
+
+	err = page_symlink(new_inode, linkname, len + 1);
+	if (unlikely(err)) {
+		clear_nlink(new_inode);
+		discard_new_inode(new_inode);
+	}
+	d_instantiate_new(dentry, new_inode);
+	return 0;
+}
+
 const struct inode_operations ftfs_dir_inode_operations = {
 	.create			= ftfs_create,
 	.lookup			= ftfs_lookup,
 	.link			= ftfs_link,
 	.unlink			= ftfs_unlink,
-	// .symlink		= ftfs_symlink,
+	.symlink		= ftfs_symlink,
 	.mkdir			= ftfs_mkdir,
 	.rmdir			= ftfs_rmdir,
 	// .mknod		= ftfs_mknod,

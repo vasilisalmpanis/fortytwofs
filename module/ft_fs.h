@@ -46,5 +46,6 @@ int ftfs_remove_dentry(struct inode *inode, const struct qstr *name);
 extern const struct file_operations ftfs_file_ops;
 extern const struct file_operations ftfs_dir_ops;
 extern const struct inode_operations ftfs_dir_inode_operations;
+extern const struct inode_operations ftfs_symlink_inode_operations;
 
 #endif /* _FT_FS_H */
