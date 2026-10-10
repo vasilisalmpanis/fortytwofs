@@ -91,11 +91,25 @@ static struct dentry *ftfs_lookup(struct inode *dir, struct dentry *dentry,
 	return d_splice_alias(inode, dentry);
 }
 
+static int ftfs_unlink(struct inode *dir, struct dentry *dentry)
+{
+	struct inode *inode = d_inode(dentry);
+	int err;
+
+	err = ftfs_remove_dentry(dir, &dentry->d_name);
+	if (err)
+		return err;
+
+	inode_set_ctime_to_ts(inode, inode_get_ctime(dir));
+	inode_dec_link_count(inode);
+	return 0;
+}
+
 const struct inode_operations ftfs_dir_inode_operations = {
 	.create			= ftfs_create,
 	.lookup			= ftfs_lookup,
 	// .link		= ftfs_link,
-	// .unlink		= ftfs_unlink,
+	.unlink			= ftfs_unlink,
 	// .symlink		= ftfs_symlink,
 	.mkdir			= ftfs_mkdir,
 	.rmdir			= ftfs_rmdir,
