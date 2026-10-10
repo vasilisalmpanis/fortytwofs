@@ -235,6 +235,77 @@ static void ftfs_write_raw_inode(ft_inode *raw, struct inode *inode)
 	raw->atime = cpu_to_le32(inode_get_atime_sec(inode));
 }
 
+static void ftfs_free_blocks(struct super_block *sb, __u32 block, __u8 lvl)
+{
+	struct buffer_head *bh;
+
+	if (block == 0)
+		return;
+	bh = sb_bread(sb, block);
+	if (!bh) {
+		pr_warn("ftfs: can't read block during free");
+		return;
+	}
+	if (lvl == 0) {
+		if (ftfs_free_block(sb, block))
+			pr_warn("ftfs: can't free block %d", block);
+	} else {
+		__u32 *blks = (__u32 *)bh->b_data;
+
+		for (int i = 0; i < FT_PTRS_PER_BLOCK; i++) {
+			if (blks[i] == 0)
+				continue;
+
+			ftfs_free_blocks(sb, blks[i], lvl - 1);
+		}
+
+		if (ftfs_free_block(sb, block))
+			pr_warn("ftfs: can't free indirect block %d", block);
+	}
+	brelse(bh);
+}
+
+/**
+ * ftfs_evict_inode evict and inode from cache
+ *
+ * Evict inode from cache. If number of links is 0
+ * mark inode as free on superblock metadata.
+ */
+void ftfs_evict_inode(struct inode *inode)
+{
+	ft_inode_info *inode_info = inode->i_private;
+	ft_inode *raw_inode = inode_info->inode;
+	ft_super_info *super_info = inode->i_sb->s_fs_info;
+	ft_super *raw_super = super_info->super;
+	u32 inode_bit_to_free = inode->i_ino;
+
+	truncate_inode_pages_final(&inode->i_data);
+
+	/* Release the blocks */
+	if (!inode->i_nlink) {
+		ftfs_free_blocks(inode->i_sb, raw_inode->block, raw_inode->level);
+		inode->i_size = 0;
+	}
+
+	clear_inode(inode);
+
+	/* Mark inode bit as free in superblock bitmap */
+	if (!inode->i_nlink) {
+		__clear_bit_le(inode_bit_to_free, &raw_super->inodes_bitmap);
+		raw_super->data.free_inodes = cpu_to_le32(le32_to_cpu
+					(raw_super->data.free_inodes) + 1);
+		mark_buffer_dirty(super_info->bh);
+
+		/* Set inode emtpy in inodes block */
+		memset(raw_inode, 0, sizeof(*raw_inode));
+		mark_buffer_dirty(inode_info->bh);
+	}
+
+	/* Don't use bh after this point */
+	brelse(inode_info->bh);
+	inode_info->bh = NULL;
+}
+
 int ftfs_write_inode(struct inode *inode, struct writeback_control *wbc)
 {
 	ft_inode_info *info = inode->i_private;

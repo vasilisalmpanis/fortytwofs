@@ -27,6 +27,7 @@ typedef struct ftfs_inode_info {
 } ft_inode_info;
 
 struct inode *fortyfs_iget(struct super_block *sb, unsigned long ino);
+void ftfs_evict_inode(struct inode *inode);
 int ftfs_write_inode(struct inode *inode, struct writeback_control *wbc);
 struct inode *ftfs_new_inode(struct inode *dir, umode_t mode,
 				   const struct qstr *qstr);
@@ -37,6 +38,7 @@ int ftfs_lookup_ino(struct inode *dir, const struct qstr *name,
 int ftfs_make_empty(struct inode *inode, struct inode *parent);
 int ftfs_alloc_new_block(struct super_block *sb);
 int ftfs_zalloc_new_block(struct super_block *sb);
+int ftfs_free_block(struct super_block *sb, u32 block);
 int ftfs_next_level(struct inode *inode);
 int ftfs_empty_dir(struct inode *inode);
 int ftfs_remove_dentry(struct inode *inode, const struct qstr *name);

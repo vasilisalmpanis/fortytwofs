@@ -8,8 +8,34 @@ struct fortytwo_fs_context {
 
 static const struct super_operations ftfs_sops = {
 	.write_inode	= ftfs_write_inode,
-	// .evict_inode	= ftfs_evict_inode,
+	.evict_inode	= ftfs_evict_inode,
 };
+
+int ftfs_free_block(struct super_block *sb, u32 block)
+{
+	ft_super_info *super_info = sb->s_fs_info;
+	ft_super *raw_super = super_info->super;
+	u32 block_index = block / FT_BITMAP_CAPACITY_PER_BLOCK;
+	u32 bit_to_unset = block % FT_BITMAP_CAPACITY_PER_BLOCK;
+	struct buffer_head *bitmap_bh;
+
+	// calculate index for the block
+	// calculate count blocks in this bitmap
+	// set bit to 0 with __set_bit_le
+	// mark buffer as dirty
+	bitmap_bh = sb_bread(sb, block_index +
+			raw_super->data.blocks_bitmap_block);
+	if (!bitmap_bh)
+		return -ENOMEM;
+
+	__clear_bit_le(bit_to_unset, bitmap_bh->b_data);
+	raw_super->data.free_blocks = cpu_to_le32(le32_to_cpu
+						  (raw_super->data.free_blocks) + 1);
+	mark_buffer_dirty(super_info->bh);
+	mark_buffer_dirty(bitmap_bh);
+	brelse(bitmap_bh);
+	return 0;
+}
 
 static int ftfs_fill_super(struct super_block *sb, struct fs_context *fc)
 {
@@ -25,7 +51,7 @@ static int ftfs_fill_super(struct super_block *sb, struct fs_context *fc)
 		pr_err("unable to read superblock\n");
 		return -EINVAL;
 	}
-	ft_super_info * super_ft __free(kfree) = kzalloc(sizeof(ft_super_info),
+	ft_super_info *super_ft __free(kfree) = kzalloc(sizeof(ft_super_info),
 							GFP_KERNEL);
 	if (!super_ft) {
 		brelse(bh);
