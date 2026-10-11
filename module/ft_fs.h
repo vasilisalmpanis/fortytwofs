@@ -14,23 +14,26 @@
 #include <linux/byteorder/generic.h>
 #include <linux/mpage.h>
 #include <linux/writeback.h>
+#include <linux/mutex.h>
+#include <linux/blkdev.h>
 #include "fortytwofs.h"
 
 typedef struct ftfs_super_info {
 	struct buffer_head *bh;
 	ft_super *super;
+	struct mutex lock;
 } ft_super_info;
 
 typedef struct ftfs_inode_info {
 	struct buffer_head *bh;
 	ft_inode *inode;
+	struct mutex lock;
 } ft_inode_info;
 
 struct inode *fortyfs_iget(struct super_block *sb, unsigned long ino);
 void ftfs_evict_inode(struct inode *inode);
 int ftfs_write_inode(struct inode *inode, struct writeback_control *wbc);
-struct inode *ftfs_new_inode(struct inode *dir, umode_t mode,
-				   const struct qstr *qstr);
+struct inode *ftfs_new_inode(struct inode *dir, umode_t mode);
 int ftfs_add_dentry(struct inode *dir, struct inode *child,
 		    const struct qstr *qstr);
 int ftfs_lookup_ino(struct inode *dir, const struct qstr *name,

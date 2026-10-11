@@ -15,36 +15,6 @@ static int ftfs_dir_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static int ftfs_readdir(struct file *file, struct dir_context *ctx)
-{
-	struct inode *inode = file_inode(file);
-	ft_inode_info *info = (ft_inode_info *)inode->i_private;
-	ft_inode *inode_ft = info->inode;
-
-	struct buffer_head *bh = NULL;
-	ft_dentry *dentry = NULL;
-	loff_t pos = ctx->pos;
-
-	if (pos >= inode->i_size)
-		return 0;
-	bh = sb_bread(inode->i_sb, inode_ft->block);
-	if (!bh)
-		return -ENOMEM;
-
-	while (ctx->pos < bh->b_size) {
-		dentry = (ft_dentry *)(bh->b_data + ctx->pos);
-		ctx->pos += sizeof(ft_dentry);
-		if (dentry->type == FT42_FREE)
-			continue;
-		if (!dir_emit(ctx, dentry->name, strlen(dentry->name),
-			      le32_to_cpu(dentry->ino_idx),
-			      dentry->type))
-			break;
-	}
-	brelse(bh);
-	return 0;
-}
-
 /*
  * Returns 0 and sets ino if found, -ENOENT if not.
  */
@@ -99,16 +69,17 @@ int ftfs_lookup_ino(struct inode *dir, const struct qstr *name,
 /*
  * returns 0 if nothing found
  */
-static int ftfs_free_space_for_dentry(struct super_block *sb,
+static int ftfs_free_space_for_dentry(struct inode *dir,
 				      __u32 block,
 				      __u8 lvl,
 				      int *dentry_idx)
 {
+	struct super_block *sb = dir->i_sb;
 	struct buffer_head *bh = sb_bread(sb, block);
 	int ret = 0;
 
 	if (!bh)
-		return -ENOMEM;
+		return -EIO;
 	if (lvl == 0) {
 		ft_dentry *dentry_arr = (ft_dentry *)bh->b_data;
 
@@ -132,8 +103,14 @@ static int ftfs_free_space_for_dentry(struct super_block *sb,
 				}
 				blocks[idx] = new_block;
 				mark_buffer_dirty(bh);
+				if (lvl == 1) {
+					// Inclease inode size to 1 block
+					i_size_write(dir, dir->i_size +
+						     FT_BLOCK_SIZE);
+					mark_inode_dirty(dir);
+				}
 			}
-			ret = ftfs_free_space_for_dentry(sb,
+			ret = ftfs_free_space_for_dentry(dir,
 							 blocks[idx],
 							 lvl - 1,
 							 dentry_idx);
@@ -155,24 +132,33 @@ int ftfs_add_dentry(struct inode *dir, struct inode *child,
 	ft_dentry *new_dentry;
 	int dentry_idx = 0;
 	ft_dentry *dentry_arr;
-	__u32 block = ftfs_free_space_for_dentry(dir->i_sb, raw->block,
-						 raw->level, &dentry_idx);
+	int block;
+	int err;
+
+	if (qstr->len > FT_MAX_NAME_LEN)
+		return -ENAMETOOLONG;
+	block = ftfs_free_space_for_dentry(dir, raw->block, raw->level,
+					   &dentry_idx);
 	if (block < 0)
-		return -ENOSPC;
+		return block;
 	if (block == 0) {
-		if (ftfs_next_level(dir) < 0)
-			return -ENOSPC;
-		block = ftfs_free_space_for_dentry(dir->i_sb, raw->block,
+		err = ftfs_next_level(dir);
+		if (err)
+			return err;
+		block = ftfs_free_space_for_dentry(dir, raw->block,
 						   raw->level, &dentry_idx);
-		if (block <= 0)
+		if (block < 0)
+			return block;
+		if (block == 0)
 			return -ENOSPC;
 	}
 	bh = sb_bread(dir->i_sb, block);
 	if (!bh)
-		return -ENOMEM;
+		return -EIO;
 	dentry_arr = (ft_dentry *)bh->b_data;
 	new_dentry = dentry_arr + dentry_idx;
-	new_dentry->ino_idx = child->i_ino;
+	memset(new_dentry, 0, sizeof(*new_dentry));
+	new_dentry->ino_idx = cpu_to_le32(child->i_ino);
 	new_dentry->type = fs_umode_to_dtype(child->i_mode);
 	memcpy(new_dentry->name, qstr->name, qstr->len);
 	mark_buffer_dirty(bh);
@@ -221,7 +207,7 @@ static int ftfs_check_dentries_until_false(struct super_block *sb,
 	int ret = 1;
 
 	if (block == 0)
-		return -ENOENT;
+		return 1;
 	bh = sb_bread(sb, block);
 	if (!bh)
 		return -EIO;
@@ -250,15 +236,55 @@ static int ftfs_check_dentries_until_false(struct super_block *sb,
 							      lvl - 1,
 							      cmp, cmp_arg,
 							      res, bh_res);
-			if (ret == -ENOENT || ret == 1)
-				continue;
-			else
+			if (ret != 1)
 				break;
 		}
 	}
 	brelse(bh);
 success:
 	return ret;
+}
+
+struct ftfs_readdir_state {
+	struct dir_context *ctx;
+	loff_t off;
+};
+
+static bool ftfs_emit_dir(ft_dentry *dentry, void *data)
+{
+	struct ftfs_readdir_state *st = data;
+
+	st->off += sizeof(ft_dentry);
+	if (st->off <= st->ctx->pos)
+		return true;
+	if (dentry->type != FT42_FREE) {
+		if (!dir_emit(st->ctx, dentry->name, strlen(dentry->name),
+			      le32_to_cpu(dentry->ino_idx), dentry->type))
+			return false;
+	}
+	st->ctx->pos = st->off;
+	return true;
+}
+
+static int ftfs_readdir(struct file *file, struct dir_context *ctx)
+{
+	struct inode *inode = file_inode(file);
+	ft_inode_info *info = (ft_inode_info *)inode->i_private;
+	ft_inode *raw = info->inode;
+	struct ftfs_readdir_state st = {
+		.ctx = ctx,
+		.off = 0
+	};
+	int ret;
+
+	if (ctx->pos >= inode->i_size)
+		return 0;
+	ret = ftfs_check_dentries_until_false(inode->i_sb, raw->block,
+					      raw->level,
+					      ftfs_emit_dir, &st, NULL, NULL);
+	if (ret < 0)
+		return ret;
+	return 0;
 }
 
 static bool is_initial_dots(ft_dentry *dentry, void *unused)

@@ -7,17 +7,19 @@ static int ftfs_mkdir(struct mnt_idmap *idmap, struct inode *dir,
 	struct inode *inode;
 	int err;
 
-	inode_inc_link_count(dir);
-
-	inode = ftfs_new_inode(dir, S_IFDIR | mode, &dentry->d_name);
-	err = PTR_ERR(inode);
+	inode = ftfs_new_inode(dir, S_IFDIR | mode);
 	if (IS_ERR(inode))
-		goto out_dir;
+		return PTR_ERR(inode);
 
 	inode_inc_link_count(inode);
 	err = ftfs_make_empty(inode, dir);
 	if (err)
 		goto out_fail;
+
+	err = ftfs_add_dentry(dir, inode, &dentry->d_name);
+	if (err)
+		goto out_fail;
+	inode_inc_link_count(dir);
 
 	/*
 	 * Clears the new flag from inode otherwise all other code waits on
@@ -32,8 +34,6 @@ out_fail:
 	 */
 	clear_nlink(inode);
 	discard_new_inode(inode);
-out_dir:
-	inode_dec_link_count(dir);
 	return err;
 }
 
@@ -63,10 +63,17 @@ static int ftfs_create(struct mnt_idmap *idmap, struct inode *dir,
 {
 	(void)idmap;
 	(void)excl;
-	struct inode *inode = ftfs_new_inode(dir, mode, &dentry->d_name);
+	struct inode *inode = ftfs_new_inode(dir, mode);
+	int err;
 
 	if (IS_ERR(inode))
 		return PTR_ERR(inode);
+	err = ftfs_add_dentry(dir, inode, &dentry->d_name);
+	if (err) {
+		clear_nlink(inode);
+		discard_new_inode(inode);
+		return err;
+	}
 	d_instantiate_new(dentry, inode);
 	return 0;
 }
@@ -136,17 +143,22 @@ static int ftfs_symlink(struct mnt_idmap *idmap, struct inode *dir,
 	if (len + 1 > FT_BLOCK_SIZE)
 		return -ENAMETOOLONG;
 
-	new_inode = ftfs_new_inode(dir, S_IFLNK | 0777, &dentry->d_name);
+	new_inode = ftfs_new_inode(dir, S_IFLNK | 0777);
 	if (IS_ERR(new_inode))
 		return PTR_ERR(new_inode);
 
 	err = page_symlink(new_inode, linkname, len + 1);
-	if (unlikely(err)) {
-		clear_nlink(new_inode);
-		discard_new_inode(new_inode);
-	}
+	if (unlikely(err))
+		goto out_fail;
+	err = ftfs_add_dentry(dir, new_inode, &dentry->d_name);
+	if (unlikely(err))
+		goto out_fail;
 	d_instantiate_new(dentry, new_inode);
 	return 0;
+out_fail:
+	clear_nlink(new_inode);
+	discard_new_inode(new_inode);
+	return err;
 }
 
 const struct inode_operations ftfs_dir_inode_operations = {
