@@ -66,8 +66,8 @@ void calc_metadata(struct stat *st, struct metadata_size *data) {
 
     // Block bitmap blocks
     data->blocks_bitmap_blocks = free_blocks / FT_BITMAP_CAPACITY_PER_BLOCK;
-    if (data->blocks_bitmap_blocks == 0)
-        data->blocks_bitmap_blocks = 1;
+    if (data->blocks_bitmap_blocks % FT_BITMAP_CAPACITY_PER_BLOCK != 0)
+        data->blocks_bitmap_blocks += 1;
 }
 
 void write_one_dentry(int fs_fd, ft_dentry *dentry) {
@@ -210,7 +210,7 @@ void write_block_bitmap(int fs_fd, struct metadata_size *data) {
                 val = 0xFFFFFFFF;
                 blocks_written += 32;
             } else {
-                val = 0xFFFFFFFF >> (32 % to_write);
+                val = 0xFFFFFFFF >> (32 - to_write);
                 blocks_written += to_write;
             }
         }
