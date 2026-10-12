@@ -165,12 +165,17 @@ int ftfs_alloc_new_block(struct super_block *sb)
 	mutex_lock(&info->lock);
 	int bm_blocks = ft_sb->data.blocks_count / FT_BITMAP_CAPACITY_PER_BLOCK;
 
-	for (int bm_blk = 0; bm_blk <= bm_blocks; bm_blk++) {
-		if (bm_blk == bm_blocks)
+	if (ft_sb->data.blocks_count % FT_BITMAP_CAPACITY_PER_BLOCK != 0)
+		bm_blocks += 1;
+
+	for (int bm_blk = 0; bm_blk < bm_blocks; bm_blk++) {
+		bm_size = FT_BITMAP_CAPACITY_PER_BLOCK;
+		if (bm_blk == bm_blocks - 1) {
 			bm_size = ft_sb->data.blocks_count
-				  % FT_BITMAP_CAPACITY_PER_BLOCK;
-		if (bm_blk == 0)
-			bm_size = FT_BITMAP_CAPACITY_PER_BLOCK;
+				% FT_BITMAP_CAPACITY_PER_BLOCK;
+			if (bm_size == 0)
+				bm_size = FT_BITMAP_CAPACITY_PER_BLOCK;
+		}
 		bh = sb_bread(sb, bm_blk + ft_sb->data.blocks_bitmap_block);
 		ret = find_next_zero_bit_le(bh->b_data, bm_size, 0);
 		if (ret < bm_size) {

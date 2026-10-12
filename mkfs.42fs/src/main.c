@@ -65,8 +65,8 @@ void calc_metadata(struct stat *st, struct metadata_size *data) {
     free_blocks -= data->inode_blocks;
 
     // Block bitmap blocks
-    data->blocks_bitmap_blocks = free_blocks / FT_BITMAP_CAPACITY_PER_BLOCK;
-    if (data->blocks_bitmap_blocks % FT_BITMAP_CAPACITY_PER_BLOCK != 0)
+    data->blocks_bitmap_blocks = data->total_blocks / FT_BITMAP_CAPACITY_PER_BLOCK;
+    if (data->total_blocks % FT_BITMAP_CAPACITY_PER_BLOCK != 0)
         data->blocks_bitmap_blocks += 1;
 }
 
