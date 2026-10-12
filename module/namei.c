@@ -7,17 +7,19 @@ static int ftfs_mkdir(struct mnt_idmap *idmap, struct inode *dir,
 	struct inode *inode;
 	int err;
 
-	inode_inc_link_count(dir);
-
-	inode = ftfs_new_inode(dir, S_IFDIR | mode, &dentry->d_name);
-	err = PTR_ERR(inode);
+	inode = ftfs_new_inode(dir, S_IFDIR | mode);
 	if (IS_ERR(inode))
-		goto out_dir;
+		return PTR_ERR(inode);
 
 	inode_inc_link_count(inode);
 	err = ftfs_make_empty(inode, dir);
 	if (err)
 		goto out_fail;
+
+	err = ftfs_add_dentry(dir, inode, &dentry->d_name);
+	if (err)
+		goto out_fail;
+	inode_inc_link_count(dir);
 
 	/*
 	 * Clears the new flag from inode otherwise all other code waits on
@@ -32,8 +34,6 @@ out_fail:
 	 */
 	clear_nlink(inode);
 	discard_new_inode(inode);
-out_dir:
-	inode_dec_link_count(dir);
 	return err;
 }
 
@@ -63,10 +63,17 @@ static int ftfs_create(struct mnt_idmap *idmap, struct inode *dir,
 {
 	(void)idmap;
 	(void)excl;
-	struct inode *inode = ftfs_new_inode(dir, mode, &dentry->d_name);
+	struct inode *inode = ftfs_new_inode(dir, mode);
+	int err;
 
 	if (IS_ERR(inode))
 		return PTR_ERR(inode);
+	err = ftfs_add_dentry(dir, inode, &dentry->d_name);
+	if (err) {
+		clear_nlink(inode);
+		discard_new_inode(inode);
+		return err;
+	}
 	d_instantiate_new(dentry, inode);
 	return 0;
 }
@@ -91,12 +98,75 @@ static struct dentry *ftfs_lookup(struct inode *dir, struct dentry *dentry,
 	return d_splice_alias(inode, dentry);
 }
 
+static int ftfs_unlink(struct inode *dir, struct dentry *dentry)
+{
+	struct inode *inode = d_inode(dentry);
+	int err;
+
+	err = ftfs_remove_dentry(dir, &dentry->d_name);
+	if (err)
+		return err;
+
+	inode_set_ctime_to_ts(inode, inode_get_ctime(dir));
+	inode_dec_link_count(inode);
+	return 0;
+}
+
+static int ftfs_link(struct dentry *old_dentry, struct inode *dir,
+		     struct dentry *new_dentry)
+{
+	struct inode *inode = d_inode(old_dentry);
+	int err;
+
+	inode_set_ctime_current(inode);
+	inode_inc_link_count(inode);
+	ihold(inode);
+
+	err = ftfs_add_dentry(dir, inode, &new_dentry->d_name);
+	if (err) {
+		inode_dec_link_count(inode);
+		iput(inode);
+		return err;
+	}
+
+	d_instantiate(new_dentry, inode);
+	return err;
+}
+
+static int ftfs_symlink(struct mnt_idmap *idmap, struct inode *dir,
+			struct dentry *dentry, const char *linkname)
+{
+	struct inode *new_inode;
+	int len = strlen(linkname);
+	int err;
+
+	if (len + 1 > FT_BLOCK_SIZE)
+		return -ENAMETOOLONG;
+
+	new_inode = ftfs_new_inode(dir, S_IFLNK | 0777);
+	if (IS_ERR(new_inode))
+		return PTR_ERR(new_inode);
+
+	err = page_symlink(new_inode, linkname, len + 1);
+	if (unlikely(err))
+		goto out_fail;
+	err = ftfs_add_dentry(dir, new_inode, &dentry->d_name);
+	if (unlikely(err))
+		goto out_fail;
+	d_instantiate_new(dentry, new_inode);
+	return 0;
+out_fail:
+	clear_nlink(new_inode);
+	discard_new_inode(new_inode);
+	return err;
+}
+
 const struct inode_operations ftfs_dir_inode_operations = {
 	.create			= ftfs_create,
 	.lookup			= ftfs_lookup,
-	// .link		= ftfs_link,
-	// .unlink		= ftfs_unlink,
-	// .symlink		= ftfs_symlink,
+	.link			= ftfs_link,
+	.unlink			= ftfs_unlink,
+	.symlink		= ftfs_symlink,
 	.mkdir			= ftfs_mkdir,
 	.rmdir			= ftfs_rmdir,
 	// .mknod		= ftfs_mknod,

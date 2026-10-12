@@ -12,6 +12,10 @@ static const struct inode_operations fortyfs_inode_operations = {
 	// .fileattr_set	= ftfs_fileattr_set,
 };
 
+const struct inode_operations ftfs_symlink_inode_operations = {
+	.get_link	= page_get_link,
+};
+
 static int get_lvl_idxs(__u32 logical_blk, __u32 (*idxs)[3])
 {
 	__u32 blks_lvl_1 = FT_PTRS_PER_BLOCK;
@@ -104,8 +108,14 @@ static int get_or_create_blk(struct inode *inode, sector_t logical_blk,
 static int ftfs_get_or_create_block(struct inode *inode, sector_t logical_block,
 				    int create, u32 *result_block, bool *new)
 {
-	return get_or_create_blk(inode, logical_block, result_block,
-				 create, new);
+	ft_inode_info *info = inode->i_private;
+	int ret;
+
+	mutex_lock(&info->lock);
+	ret = get_or_create_blk(inode, logical_block, result_block,
+				create, new);
+	mutex_unlock(&info->lock);
+	return ret;
 }
 
 /**
@@ -173,6 +183,10 @@ static void ftfs_set_inode_ops(struct inode *inode)
 	} else if (S_ISDIR(inode->i_mode)) {
 		inode->i_op = &ftfs_dir_inode_operations;
 		inode->i_fop = &ftfs_dir_ops;
+	} else if (S_ISLNK(inode->i_mode)) {
+		inode->i_op = &ftfs_symlink_inode_operations;
+		inode_nohighmem(inode);
+		inode->i_mapping->a_ops = &ftfs_address_space_ops;
 	}
 }
 
@@ -197,20 +211,26 @@ static int ftfs_alloc_ino(struct super_block *sb, unsigned long *ino)
 {
 	ft_super_info *super_info = sb->s_fs_info;
 	ft_super *super = super_info->super;
-	u32 count = min_t(u32, super->data.inodes_count, FT_MAX_INODES_COUNT);
+	u32 count = min_t(u32, le32_to_cpu(super->data.inodes_count),
+			  FT_MAX_INODES_COUNT);
 	unsigned long bit;
+	int ret = -ENOSPC;
 
+	mutex_lock(&super_info->lock);
 	if (super->data.free_inodes == 0)
-		return -ENOSPC;
+		goto out;
 	bit = find_next_zero_bit_le(super->inodes_bitmap, count, 0);
 	if (bit >= count)
-		return -ENOSPC;
+		goto out;
 
 	__set_bit_le(bit, super->inodes_bitmap);
-	super->data.free_inodes -= 1;
+	le32_add_cpu(&super->data.free_inodes, -1);
 	mark_buffer_dirty(super_info->bh);
 	*ino = bit;
-	return 0;
+	ret = 0;
+out:
+	mutex_unlock(&super_info->lock);
+	return ret;
 }
 
 static void ftfs_free_ino(struct super_block *sb, unsigned long ino)
@@ -218,9 +238,14 @@ static void ftfs_free_ino(struct super_block *sb, unsigned long ino)
 	ft_super_info *super_info = sb->s_fs_info;
 	ft_super *super = super_info->super;
 
-	__clear_bit_le(ino, super->inodes_bitmap);
-	super->data.free_inodes += 1;
-	mark_buffer_dirty(super_info->bh);
+	mutex_lock(&super_info->lock);
+	if (__test_and_clear_bit_le(ino, super->inodes_bitmap)) {
+		le32_add_cpu(&super->data.free_inodes, 1);
+		mark_buffer_dirty(super_info->bh);
+	} else {
+		pr_warn("freeing already free inode %lu\n", ino);
+	}
+	mutex_unlock(&super_info->lock);
 }
 
 static void ftfs_write_raw_inode(ft_inode *raw, struct inode *inode)
@@ -233,6 +258,77 @@ static void ftfs_write_raw_inode(ft_inode *raw, struct inode *inode)
 	raw->ctime = cpu_to_le32(inode_get_ctime_sec(inode));
 	raw->mtime = cpu_to_le32(inode_get_mtime_sec(inode));
 	raw->atime = cpu_to_le32(inode_get_atime_sec(inode));
+}
+
+static void ftfs_free_blocks(struct super_block *sb, __u32 block, __u8 lvl)
+{
+	struct buffer_head *bh;
+
+	if (block == 0)
+		return;
+	bh = sb_bread(sb, block);
+	if (!bh) {
+		pr_warn("ftfs: can't read block during free");
+		return;
+	}
+	if (lvl == 0) {
+		if (ftfs_free_block(sb, block))
+			pr_warn("ftfs: can't free block %d", block);
+	} else {
+		__u32 *blks = (__u32 *)bh->b_data;
+
+		for (int i = 0; i < FT_PTRS_PER_BLOCK; i++) {
+			if (blks[i] == 0)
+				continue;
+
+			ftfs_free_blocks(sb, blks[i], lvl - 1);
+		}
+
+		if (ftfs_free_block(sb, block))
+			pr_warn("ftfs: can't free indirect block %d", block);
+	}
+	brelse(bh);
+}
+
+/**
+ * ftfs_evict_inode evict and inode from cache
+ *
+ * Evict inode from cache. If number of links is 0
+ * mark inode as free on superblock metadata.
+ */
+void ftfs_evict_inode(struct inode *inode)
+{
+	ft_inode *raw_inode;
+	ft_inode_info *inode_info = inode->i_private;
+
+	truncate_inode_pages_final(&inode->i_data);
+	if (!inode_info) {
+		clear_inode(inode);
+		return;
+	}
+	raw_inode = inode_info->inode;
+
+	/* Release the blocks */
+	if (!inode->i_nlink) {
+		ftfs_free_blocks(inode->i_sb, raw_inode->block, raw_inode->level);
+		inode->i_size = 0;
+	}
+
+	clear_inode(inode);
+
+	/* Mark inode bit as free in superblock bitmap */
+	if (!inode->i_nlink) {
+		ftfs_free_ino(inode->i_sb, inode->i_ino);
+
+		/* Set inode emtpy in inodes block */
+		memset(raw_inode, 0, sizeof(*raw_inode));
+		mark_buffer_dirty(inode_info->bh);
+	}
+
+	/* Don't use bh after this point */
+	brelse(inode_info->bh);
+	inode_info->bh = NULL;
+	kfree(inode_info);
 }
 
 int ftfs_write_inode(struct inode *inode, struct writeback_control *wbc)
@@ -250,8 +346,7 @@ int ftfs_write_inode(struct inode *inode, struct writeback_control *wbc)
 	return 0;
 }
 
-struct inode *ftfs_new_inode(struct inode *dir, umode_t mode,
-			     const struct qstr *qstr)
+struct inode *ftfs_new_inode(struct inode *dir, umode_t mode)
 {
 	struct super_block *sb = dir->i_sb;
 	struct buffer_head *bh;
@@ -263,6 +358,7 @@ struct inode *ftfs_new_inode(struct inode *dir, umode_t mode,
 	ft_inode_info *info __free(kfree) = kzalloc(sizeof(*info), GFP_KERNEL);
 	if (!info)
 		return ERR_PTR(-ENOMEM);
+	mutex_init(&info->lock);
 
 	error = ftfs_alloc_ino(sb, &ino);
 	if (error)
@@ -289,10 +385,6 @@ struct inode *ftfs_new_inode(struct inode *dir, umode_t mode,
 		goto put_inode;
 	}
 
-	error = ftfs_add_dentry(dir, inode, qstr);
-	if (error)
-		goto discard_inode;
-
 	raw = (ft_inode *)bh->b_data + ino % FT_INODES_PER_BLOCK;
 	memset(raw, 0, sizeof(*raw));
 	ftfs_write_raw_inode(raw, inode);
@@ -303,10 +395,6 @@ struct inode *ftfs_new_inode(struct inode *dir, umode_t mode,
 	inode->i_private = no_free_ptr(info);
 	return inode;
 
-discard_inode:
-	clear_nlink(inode);
-	discard_new_inode(inode);
-	goto free_bh;
 put_inode:
 	iput(inode);
 free_bh:
@@ -340,6 +428,7 @@ struct inode *fortyfs_iget(struct super_block *sb, unsigned long ino)
 		iget_failed(inode);
 		return ERR_PTR(-ENOMEM);
 	}
+	mutex_init(&inode_info->lock);
 
 	block = ino / FT_INODES_PER_BLOCK + 1;
 	bh = sb_bread(sb, block);
@@ -378,9 +467,8 @@ int ftfs_next_level(struct inode *inode)
 
 	bh = sb_bread(inode->i_sb, block);
 	if (!bh) {
-		// TODO:
-		// free block
-		return -ENOMEM;
+		ftfs_free_block(inode->i_sb, block);
+		return -EIO;
 	}
 	blocks = (__u32 *)bh->b_data;
 	blocks[0] = ft_inode->block;

@@ -8,13 +8,59 @@ struct fortytwo_fs_context {
 
 static const struct super_operations ftfs_sops = {
 	.write_inode	= ftfs_write_inode,
-	// .evict_inode	= ftfs_evict_inode,
+	.evict_inode	= ftfs_evict_inode,
 };
+
+int ftfs_free_block(struct super_block *sb, u32 block)
+{
+	ft_super_info *super_info = sb->s_fs_info;
+	ft_super *raw_super = super_info->super;
+	u32 block_index = block / FT_BITMAP_CAPACITY_PER_BLOCK;
+	u32 bit_to_unset = block % FT_BITMAP_CAPACITY_PER_BLOCK;
+	struct buffer_head *bitmap_bh;
+
+	if (block == 0 || block >= le32_to_cpu(raw_super->data.blocks_count))
+		return -EINVAL;
+	bitmap_bh = sb_bread(sb, block_index +
+			le32_to_cpu(raw_super->data.blocks_bitmap_block));
+	if (!bitmap_bh)
+		return -EIO;
+
+	mutex_lock(&super_info->lock);
+	if (__test_and_clear_bit_le(bit_to_unset, bitmap_bh->b_data)) {
+		le32_add_cpu(&raw_super->data.free_blocks, 1);
+		mark_buffer_dirty(super_info->bh);
+		mark_buffer_dirty(bitmap_bh);
+	} else {
+		pr_warn("freeing already free block %u\n", block);
+	}
+	mutex_unlock(&super_info->lock);
+	brelse(bitmap_bh);
+	return 0;
+}
+
+static int ftfs_check_super(struct super_block *sb, ft_super *raw)
+{
+	u32 inodes_count = le32_to_cpu(raw->data.inodes_count);
+	u32 blocks_count = le32_to_cpu(raw->data.blocks_count);
+
+	if (inodes_count == 0 || inodes_count > FT_MAX_INODES_COUNT) {
+		pr_err("bad inodes_count %u\n", inodes_count);
+		return -EINVAL;
+	}
+	if (blocks_count < FT_MIN_BLOCKS) {
+		pr_err("bad blocks_count %u\n", blocks_count);
+		return -EINVAL;
+	}
+	// TODO: some other checks
+	return 0;
+}
 
 static int ftfs_fill_super(struct super_block *sb, struct fs_context *fc)
 {
 	struct buffer_head *bh;
 	struct inode *root;
+	int err;
 
 	if (sb_set_blocksize(sb, FT_BLOCK_SIZE) != FT_BLOCK_SIZE) {
 		pr_err("unable to set blocksize\n");
@@ -25,7 +71,7 @@ static int ftfs_fill_super(struct super_block *sb, struct fs_context *fc)
 		pr_err("unable to read superblock\n");
 		return -EINVAL;
 	}
-	ft_super_info * super_ft __free(kfree) = kzalloc(sizeof(ft_super_info),
+	ft_super_info *super_ft __free(kfree) = kzalloc(sizeof(ft_super_info),
 							GFP_KERNEL);
 	if (!super_ft) {
 		brelse(bh);
@@ -34,13 +80,19 @@ static int ftfs_fill_super(struct super_block *sb, struct fs_context *fc)
 
 	super_ft->bh = bh;
 	super_ft->super = (ft_super *)bh->b_data;
+	mutex_init(&super_ft->lock);
 
-	if (super_ft->super->data.magic != FT_FS_MAGIC) {
+	if (le32_to_cpu(super_ft->super->data.magic) != FT_FS_MAGIC) {
 		pr_err("42fs filesystem not found\n");
 		brelse(bh);
 		return -EINVAL;
 	}
-	sb->s_magic = super_ft->super->data.magic;
+	err = ftfs_check_super(sb, super_ft->super);
+	if (err) {
+		brelse(bh);
+		return err;
+	}
+	sb->s_magic = FT_FS_MAGIC;
 	sb->s_op = &ftfs_sops;
 	sb->s_fs_info = no_free_ptr(super_ft);
 	sb->s_max_links = 0xFF;
@@ -48,7 +100,6 @@ static int ftfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	root = fortyfs_iget(sb, 0);
 	if (IS_ERR(root)) {
 		pr_err("unable to get root inode\n");
-		brelse(bh);
 		return PTR_ERR(root);
 	}
 
@@ -62,10 +113,13 @@ static int ftfs_fill_super(struct super_block *sb, struct fs_context *fc)
 
 static void ftfs_kill_sb(struct super_block *sb)
 {
-	ft_super *super_ft = sb->s_fs_info;
+	ft_super_info *info = sb->s_fs_info;
 
 	kill_block_super(sb);
-	kfree(super_ft);
+	if (info) {
+		brelse(info->bh);
+		kfree(info);
+	}
 }
 
 static int ftfs_get_tree(struct fs_context *fc)
@@ -107,6 +161,8 @@ int ftfs_alloc_new_block(struct super_block *sb)
 
 	if (ft_sb->data.free_blocks == 0)
 		return -ENOSPC;
+
+	mutex_lock(&info->lock);
 	int bm_blocks = ft_sb->data.blocks_count / FT_BITMAP_CAPACITY_PER_BLOCK;
 
 	for (int bm_blk = 0; bm_blk <= bm_blocks; bm_blk++) {
@@ -124,11 +180,12 @@ int ftfs_alloc_new_block(struct super_block *sb)
 
 			ft_sb->data.free_blocks -= 1;
 			mark_buffer_dirty(info->bh);
-
+			mutex_unlock(&info->lock);
 			return FT_BITMAP_CAPACITY_PER_BLOCK * bm_blk + ret;
 		}
 		brelse(bh);
 	}
+	mutex_unlock(&info->lock);
 	return -ENOSPC;
 }
 
@@ -141,7 +198,7 @@ int ftfs_zalloc_new_block(struct super_block *sb)
 		return block;
 	bh = sb_getblk(sb, block);
 	if (!bh) {
-		// TODO: free block
+		ftfs_free_block(sb, block);
 		return -ENOMEM;
 	}
 	lock_buffer(bh);

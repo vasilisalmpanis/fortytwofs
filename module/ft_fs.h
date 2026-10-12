@@ -14,22 +14,26 @@
 #include <linux/byteorder/generic.h>
 #include <linux/mpage.h>
 #include <linux/writeback.h>
+#include <linux/mutex.h>
+#include <linux/blkdev.h>
 #include "fortytwofs.h"
 
 typedef struct ftfs_super_info {
 	struct buffer_head *bh;
 	ft_super *super;
+	struct mutex lock;
 } ft_super_info;
 
 typedef struct ftfs_inode_info {
 	struct buffer_head *bh;
 	ft_inode *inode;
+	struct mutex lock;
 } ft_inode_info;
 
 struct inode *fortyfs_iget(struct super_block *sb, unsigned long ino);
+void ftfs_evict_inode(struct inode *inode);
 int ftfs_write_inode(struct inode *inode, struct writeback_control *wbc);
-struct inode *ftfs_new_inode(struct inode *dir, umode_t mode,
-				   const struct qstr *qstr);
+struct inode *ftfs_new_inode(struct inode *dir, umode_t mode);
 int ftfs_add_dentry(struct inode *dir, struct inode *child,
 		    const struct qstr *qstr);
 int ftfs_lookup_ino(struct inode *dir, const struct qstr *name,
@@ -37,6 +41,7 @@ int ftfs_lookup_ino(struct inode *dir, const struct qstr *name,
 int ftfs_make_empty(struct inode *inode, struct inode *parent);
 int ftfs_alloc_new_block(struct super_block *sb);
 int ftfs_zalloc_new_block(struct super_block *sb);
+int ftfs_free_block(struct super_block *sb, u32 block);
 int ftfs_next_level(struct inode *inode);
 int ftfs_empty_dir(struct inode *inode);
 int ftfs_remove_dentry(struct inode *inode, const struct qstr *name);
@@ -44,5 +49,6 @@ int ftfs_remove_dentry(struct inode *inode, const struct qstr *name);
 extern const struct file_operations ftfs_file_ops;
 extern const struct file_operations ftfs_dir_ops;
 extern const struct inode_operations ftfs_dir_inode_operations;
+extern const struct inode_operations ftfs_symlink_inode_operations;
 
 #endif /* _FT_FS_H */
