@@ -16,6 +16,7 @@
 #include <linux/writeback.h>
 #include <linux/mutex.h>
 #include <linux/blkdev.h>
+#include <linux/math.h>
 #include "fortytwofs.h"
 
 typedef struct ftfs_super_info {

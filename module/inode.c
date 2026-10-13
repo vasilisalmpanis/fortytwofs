@@ -200,6 +200,7 @@ static void ftfs_set_inode_data(struct inode *inode)
 	i_gid_write(inode, le32_to_cpu(raw->gid));
 	set_nlink(inode, le16_to_cpu((__u16)raw->links));
 	inode->i_size = le32_to_cpu(raw->size);
+	inode->i_blocks = DIV_ROUND_UP(ALIGN(inode->i_size, FT_BLOCK_SIZE),512);
 	inode_set_atime(inode, (signed int)le32_to_cpu(raw->atime), 0);
 	inode_set_ctime(inode, (signed int)le32_to_cpu(raw->ctime), 0);
 	inode_set_mtime(inode, (signed int)le32_to_cpu(raw->mtime), 0);
