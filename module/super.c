@@ -5,12 +5,14 @@ struct fortytwo_fs_context {
 	kuid_t		s_resuid;
 	kgid_t		s_resgid;
 };
+
 static int ftfs_statfs(struct dentry *dentry, struct kstatfs *stats)
 {
 	struct super_block *sb = dentry->d_sb;
 	ft_super_info *super_info = sb->s_fs_info;
+	u64 id;
 
-	u64 id = huge_encode_dev(sb->s_bdev->bd_dev);
+	id = huge_encode_dev(sb->s_bdev->bd_dev);
 	stats->f_type = FT_FS_MAGIC;
 	stats->f_bsize = FT_BLOCK_SIZE;
 	stats->f_blocks = super_info->super->data.blocks_count;

@@ -161,6 +161,71 @@ out_fail:
 	return err;
 }
 
+static int ftfs_rename(struct mnt_idmap *idmap, struct inode *old_dir,
+		       struct dentry *old_dentry, struct inode *new_dir,
+		       struct dentry *new_dentry, unsigned int flags)
+{
+	struct inode *old_inode = d_inode(old_dentry);
+	struct inode *new_inode = d_inode(new_dentry);
+	struct ft_dentry *old_parent_de = NULL;
+	struct ft_dentry *old_de = NULL;
+	struct buffer_head *bh_parent_de = NULL;
+	struct buffer_head *bh_old_de = NULL;
+	struct qstr dotdot = QSTR_INIT("..", 2);
+	bool old_inode_was_dir = S_ISDIR(old_inode->i_mode);
+	int ret;
+
+	ret = ftfs_find_dentry(old_dir, &old_de, &bh_old_de,
+			       &old_dentry->d_name);
+	if (ret)
+		return ret;
+	if (old_inode_was_dir) {
+		ret = ftfs_find_dentry(old_inode, &old_parent_de,
+				       &bh_parent_de, &dotdot);
+		if (ret)
+			return ret;
+	}
+
+	if (new_inode) {
+		ret = -ENOTEMPTY;
+		if (old_inode_was_dir && !ftfs_empty_dir(new_inode))
+			goto out_dir;
+		ret = ftfs_remove_dentry(new_dir, &new_dentry->d_name);
+		if (ret)
+			goto out_dir;
+
+		ret = ftfs_add_dentry(new_dir, old_inode, &new_dentry->d_name);
+		if (ret)
+			goto out_dir;
+
+		if (old_inode_was_dir)
+			drop_nlink(new_inode);
+		inode_dec_link_count(new_inode);
+	} else {
+		ret = ftfs_add_dentry(new_dir, old_inode, &new_dentry->d_name);
+		if (ret)
+			goto out_dir;
+
+		if (old_inode_was_dir)
+			inode_inc_link_count(new_dir);
+	}
+
+	ret = ftfs_remove_dentry(old_dir, &old_dentry->d_name);
+	if (!ret && old_inode_was_dir) {
+		if (old_dir != new_dir) {
+			old_parent_de->ino_idx = cpu_to_le32(new_dir->i_ino);
+			mark_buffer_dirty(bh_parent_de);
+		}
+		inode_dec_link_count(old_dir);
+	}
+out_dir:
+	if (bh_parent_de)
+		brelse(bh_parent_de);
+	if (bh_old_de)
+		brelse(bh_old_de);
+	return ret;
+}
+
 const struct inode_operations ftfs_dir_inode_operations = {
 	.create			= ftfs_create,
 	.lookup			= ftfs_lookup,
@@ -169,8 +234,8 @@ const struct inode_operations ftfs_dir_inode_operations = {
 	.symlink		= ftfs_symlink,
 	.mkdir			= ftfs_mkdir,
 	.rmdir			= ftfs_rmdir,
+	.rename			= ftfs_rename,
 	// .mknod		= ftfs_mknod,
-	// .rename		= ftfs_rename,
 	// .listxattr		= ftfs_listxattr,
 	// .getattr		= ftfs_getattr,
 	// .setattr		= ftfs_setattr,
