@@ -15,55 +15,22 @@ static int ftfs_dir_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
-/*
- * Returns 0 and sets ino if found, -ENOENT if not.
- */
-static int ftfs_find_dentry(struct super_block *sb, __u32 block, __u8 lvl,
-			    const struct qstr *name, unsigned long *ino)
-{
-	struct buffer_head *bh;
-	int ret = -ENOENT;
-
-	if (block == 0)
-		return -ENOENT;
-	bh = sb_bread(sb, block);
-	if (!bh)
-		return -EIO;
-	if (lvl == 0) {
-		ft_dentry *dentry_arr = (ft_dentry *)bh->b_data;
-
-		for (int idx = 0; idx < FT_DENTRY_PER_BLOCK; idx++) {
-			ft_dentry *de = &dentry_arr[idx];
-
-			if (de->type == FT42_FREE)
-				continue;
-			if (strlen(de->name) == name->len &&
-			    !memcmp(de->name, name->name, name->len)) {
-				*ino = le32_to_cpu(de->ino_idx);
-				ret = 0;
-				break;
-			}
-		}
-	} else {
-		__u32 *blks = (__u32 *)bh->b_data;
-
-		for (int i = 0; i < FT_PTRS_PER_BLOCK; i++) {
-			ret = ftfs_find_dentry(sb, blks[i], lvl - 1, name, ino);
-			if (ret != -ENOENT)
-				break;
-		}
-	}
-	brelse(bh);
-	return ret;
-}
-
-int ftfs_lookup_ino(struct inode *dir, const struct qstr *name,
+int ftfs_lookup_ino(struct inode *dir, struct qstr *name,
 		    unsigned long *ino)
 {
-	ft_inode_info *info = (ft_inode_info *)dir->i_private;
+	struct buffer_head *bh = NULL;
+	ft_dentry *dentry = NULL;
+	int ret;
 
-	return ftfs_find_dentry(dir->i_sb, le32_to_cpu(info->inode->block),
-				info->inode->level, name, ino);
+	ret = ftfs_find_dentry(dir, &dentry, &bh, name);
+	if (ret == 0) {
+		*ino = dentry->ino_idx;
+		brelse(bh);
+		return 0;
+	} else if (ret == 1) {
+		return -ENOENT;
+	}
+	return ret;
 }
 
 /*
@@ -335,6 +302,10 @@ static bool match_name(ft_dentry *dentry, void *arg)
 	return false;
 }
 
+/** ftfs_remove_dentry
+ * @inode: the directory to remove from
+ * @name: the name to remove from the directory entries
+ */
 int ftfs_remove_dentry(struct inode *inode, const struct qstr *name)
 {
 	ft_inode_info *info = inode->i_private;
@@ -354,6 +325,23 @@ int ftfs_remove_dentry(struct inode *inode, const struct qstr *name)
 	mark_buffer_dirty(bh);
 	brelse(bh);
 	return 0;
+}
+
+int ftfs_find_dentry(struct inode *inode, ft_dentry **res, struct buffer_head **bh,
+		     struct qstr *name)
+{
+	ft_inode_info *inode_info = inode->i_private;
+	ft_inode *raw_inode = inode_info->inode;
+	int ret;
+
+	ret = ftfs_check_dentries_until_false(inode->i_sb, raw_inode->block,
+					      raw_inode->level, match_name,
+					      name, res, bh);
+	if (ret == 0)
+		return ret;
+	if (ret > 0)
+		return -ENOENT;
+	return ret;
 }
 
 const struct file_operations ftfs_dir_ops = {
