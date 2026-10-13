@@ -5,10 +5,29 @@ struct fortytwo_fs_context {
 	kuid_t		s_resuid;
 	kgid_t		s_resgid;
 };
+static int ftfs_statfs(struct dentry *dentry, struct kstatfs *stats)
+{
+	struct super_block *sb = dentry->d_sb;
+	ft_super_info *super_info = sb->s_fs_info;
+
+	u64 id = huge_encode_dev(sb->s_bdev->bd_dev);
+	stats->f_type = FT_FS_MAGIC;
+	stats->f_bsize = FT_BLOCK_SIZE;
+	stats->f_blocks = super_info->super->data.blocks_count;
+	stats->f_bfree = super_info->super->data.free_blocks;
+	stats->f_bavail = super_info->super->data.free_blocks;
+	stats->f_files = super_info->super->data.inodes_count;
+	stats->f_ffree = super_info->super->data.free_inodes;
+	stats->f_fsid = u64_to_fsid(id);
+	stats->f_namelen = FT_MAX_NAME_LEN;
+	stats->f_frsize = FT_BLOCK_SIZE;
+	return 0;
+}
 
 static const struct super_operations ftfs_sops = {
 	.write_inode	= ftfs_write_inode,
 	.evict_inode	= ftfs_evict_inode,
+	.statfs		= ftfs_statfs,
 };
 
 int ftfs_free_block(struct super_block *sb, u32 block)
