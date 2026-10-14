@@ -240,7 +240,7 @@ static const struct fs_parameter_spec ftfs_param_spec[] = {
 	{}
 };
 
-static struct file_system_type ftfs_fs_type = {
+struct file_system_type ftfs_fs_type = {
 	.owner			= THIS_MODULE,
 	.name			= "fortytwofs",
 	.kill_sb		= ftfs_kill_sb,
@@ -251,14 +251,21 @@ static struct file_system_type ftfs_fs_type = {
 
 static int __init fortytwofs_init(void)
 {
+	int ret;
+
 	pr_info("Hello from fortytwofs\n");
-	return register_filesystem(&ftfs_fs_type);
+	ret = register_filesystem(&ftfs_fs_type);
+	if (ret)
+		return ret;
+	misc_register(&ftfs_misc_dev);
+	return ret;
 }
 module_init(fortytwofs_init);
 
 static void __exit fortytwofs_exit(void)
 {
 	pr_info("Goodbye from fortytwofs\n");
+	misc_deregister(&ftfs_misc_dev);
 	unregister_filesystem(&ftfs_fs_type);
 }
 module_exit(fortytwofs_exit);

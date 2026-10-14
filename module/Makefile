@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0
 obj-m += fortytwofsmod.o
-fortytwofsmod-objs := super.o inode.o dir.o file.o namei.o
+fortytwofsmod-objs := super.o inode.o dir.o file.o namei.o miscdev.o
 
 KDIR := /lib/modules/$(shell uname -r)/build
 

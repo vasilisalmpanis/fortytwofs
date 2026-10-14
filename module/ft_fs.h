@@ -18,6 +18,7 @@
 #include <linux/blkdev.h>
 #include <linux/math.h>
 #include <linux/statfs.h>
+#include <linux/miscdevice.h>
 #include "fortytwofs.h"
 
 typedef struct ftfs_super_info {
@@ -54,5 +55,7 @@ extern const struct file_operations ftfs_file_ops;
 extern const struct file_operations ftfs_dir_ops;
 extern const struct inode_operations ftfs_dir_inode_operations;
 extern const struct inode_operations ftfs_symlink_inode_operations;
+extern struct miscdevice ftfs_misc_dev;
+extern struct file_system_type ftfs_fs_type;
 
 #endif /* _FT_FS_H */
