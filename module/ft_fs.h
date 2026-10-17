@@ -20,6 +20,7 @@
 #include <linux/statfs.h>
 #include <linux/miscdevice.h>
 #include "fortytwofs.h"
+#include <linux/fileattr.h>
 
 typedef struct ftfs_super_info {
 	struct buffer_head *bh;
@@ -36,6 +37,7 @@ typedef struct ftfs_inode_info {
 struct inode *fortyfs_iget(struct super_block *sb, unsigned long ino);
 void ftfs_evict_inode(struct inode *inode);
 int ftfs_write_inode(struct inode *inode, struct writeback_control *wbc);
+void ftfs_set_inode_ops(struct inode *inode, dev_t rdev);
 struct inode *ftfs_new_inode(struct inode *dir, umode_t mode);
 int ftfs_find_dentry(struct inode *inode, ft_dentry **res, struct buffer_head **bh,
 		     struct qstr *name);

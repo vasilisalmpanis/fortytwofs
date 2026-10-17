@@ -90,7 +90,7 @@ static int ftfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	bh = sb_bread(sb, 0);
 	if (!bh) {
 		pr_err("unable to read superblock\n");
-		return -EINVAL;
+		return -EIO;
 	}
 	ft_super_info *super_ft __free(kfree) = kzalloc(sizeof(ft_super_info),
 							GFP_KERNEL);
@@ -117,6 +117,12 @@ static int ftfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	sb->s_op = &ftfs_sops;
 	sb->s_fs_info = no_free_ptr(super_ft);
 	sb->s_max_links = 0xFF;
+	sb->s_maxbytes = U32_MAX;
+	sb->s_iflags |= SB_I_CGROUPWB;
+	/* On-disk timestamps are signed 32-bit seconds */
+	sb->s_time_gran = NSEC_PER_SEC;
+	sb->s_time_min = S32_MIN;
+	sb->s_time_max = S32_MAX;
 
 	root = fortyfs_iget(sb, 0);
 	if (IS_ERR(root)) {
@@ -198,6 +204,10 @@ int ftfs_alloc_new_block(struct super_block *sb)
 				bm_size = FT_BITMAP_CAPACITY_PER_BLOCK;
 		}
 		bh = sb_bread(sb, bm_blk + ft_sb->data.blocks_bitmap_block);
+		if (!bh) {
+			mutex_unlock(&info->lock);
+			return -EIO;
+		}
 		ret = find_next_zero_bit_le(bh->b_data, bm_size, 0);
 		if (ret < bm_size) {
 			__set_bit_le(ret, bh->b_data);
