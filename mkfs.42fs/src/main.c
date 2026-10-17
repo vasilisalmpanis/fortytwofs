@@ -9,6 +9,8 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <time.h>
+#include <sys/ioctl.h>
+#include <linux/fs.h>
 #include "../fortytwofs.h"
 
 #define INODE_SHARE 5
@@ -43,6 +45,21 @@ struct metadata_size {
 void error(char *str) {
     fprintf(stderr, "mkfs.42fs: %s\n", str);
     exit(1);
+}
+
+// st_size is 0 for block devices, so ask the kernel for their size
+off_t device_size(const char *path, struct stat *st) {
+    uint64_t size = 0;
+    int fd;
+
+    if (S_ISREG(st->st_mode))
+        return st->st_size;
+
+    fd = open(path, O_RDONLY);
+    if (fd < 0 || ioctl(fd, BLKGETSIZE64, &size) < 0)
+        error("Cannot get block device size.");
+    close(fd);
+    return size;
 }
 
 void calc_metadata(struct stat *st, struct metadata_size *data) {
@@ -263,6 +280,7 @@ int main(int ac, char **av) {
         fprintf(stderr, "%s: not a regular file or block device\n", av[0]);
         exit(1);
     }
+    statbuf.st_size = device_size(av[1], &statbuf);
     calc_metadata(&statbuf, &data);
 
     fs_fd = open(av[1], O_RDWR);

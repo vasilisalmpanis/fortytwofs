@@ -347,7 +347,7 @@ int ftfs_find_dentry(struct inode *inode, ft_dentry **res, struct buffer_head **
 const struct file_operations ftfs_dir_ops = {
 	.open			= ftfs_dir_open,
 	.release		= ftfs_dir_release,
-	// .llseek		= ftfs_dir_llseek,
+	.llseek			= generic_file_llseek,
 	.read			= generic_read_dir,
 	.iterate_shared		= ftfs_readdir,
 	// .unlocked_ioctl	= ftfs_ioctl,
