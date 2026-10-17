@@ -1,16 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0
 #include "ft_fs.h"
+#include "linux/buffer_head.h"
+#include "linux/fs.h"
 
-static const struct inode_operations fortyfs_inode_operations = {
-	// .listxattr		= ftfs_listxattr,
-	// .getattr		= ftfs_getattr,
-	// .setattr		= ftfs_setattr,
-	// .get_inode_acl	= ftfs_get_acl,
-	// .set_acl		= ftfs_set_acl,
-	// .fiemap		= ftfs_fiemap,
-	// .fileattr_get	= ftfs_fileattr_get,
-	// .fileattr_set	= ftfs_fileattr_set,
-};
+static int ftfs_fileattr_get(struct dentry *dentry, struct fileattr *fa)
+{
+        fileattr_fill_flags(fa, 0);
+        return 0;
+}
 
 const struct inode_operations ftfs_symlink_inode_operations = {
 	.get_link	= page_get_link,
@@ -173,6 +170,8 @@ static const struct address_space_operations ftfs_address_space_ops = {
 	.writepages		= ftfs_writepages,
 	.direct_IO		= noop_direct_IO,
 };
+
+static const struct inode_operations fortyfs_inode_operations;
 
 static void ftfs_set_inode_ops(struct inode *inode)
 {
@@ -482,3 +481,95 @@ int ftfs_next_level(struct inode *inode)
 	mark_buffer_dirty(info->bh);
 	return 0;
 }
+
+static int ftfs_truncate_rec(struct inode *inode, sector_t block, int level)
+{
+	// block = 1011
+	struct buffer_head *bh;
+	u32 *blocks = NULL;
+	int ret = 0;
+
+	if (block == 0)
+		return 0;
+
+	if (level == 0) {
+		ret = ftfs_free_block(inode->i_sb, block);
+	} else {
+		bh = sb_bread(inode->i_sb, block);
+		if (!bh)
+			return -EIO;
+		blocks = (u32 *)bh->b_data;
+		for (int i = 0; i < FT_PTRS_PER_BLOCK; i++) {
+			ret = ftfs_truncate_rec(inode, blocks[i], level - 1);
+		}
+	}
+	return ret;
+}
+
+static int ftfs_truncate_blocks(struct inode *inode, sector_t logical_block)
+{
+	// free all blocks from this block onward.
+	return 0;
+}
+
+static int ftfs_setsize(struct inode *inode, loff_t new_size)
+{
+	int error;
+
+	if (!(S_ISREG(inode->i_mode) || S_ISDIR(inode->i_mode) ||
+	      S_ISLNK(inode->i_mode)))
+		return -EINVAL;
+	if (IS_APPEND(inode) || IS_IMMUTABLE(inode))
+		return -EPERM;
+	inode_dio_wait(inode);
+	error = block_truncate_page(inode->i_mapping, new_size, ftfs_get_block);
+	if (error)
+		return error;
+
+	filemap_invalidate_lock(inode->i_mapping);
+	truncate_setsize(inode, new_size);
+	ftfs_truncate_blocks(inode, DIV_ROUND_UP(new_size, FT_BLOCK_SIZE));
+	filemap_invalidate_unlock(inode->i_mapping);
+
+	inode_set_mtime_to_ts(inode, inode_set_ctime_current(inode));
+	mark_inode_dirty(inode);
+	if (inode_needs_sync(inode))
+		sync_inode_metadata(inode, 1);
+	return 0;
+}
+
+
+static int ftfs_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
+			struct iattr *attr)
+{
+	struct inode *inode = d_inode(dentry);
+	int error;
+
+	if (attr->ia_valid & ATTR_MODE)
+		return -EINVAL;
+
+	error = setattr_prepare(&nop_mnt_idmap, dentry, attr);
+	if (error)
+		return error;
+
+	if (attr->ia_valid & ATTR_SIZE && attr->ia_size != inode->i_size) {
+		error = ftfs_setsize(inode, attr->ia_size);
+		if (error)
+			return error;
+	}
+	setattr_copy(&nop_mnt_idmap, inode, attr);
+	mark_inode_dirty(inode);
+
+	return 0;
+}
+
+static const struct inode_operations fortyfs_inode_operations = {
+	// .listxattr		= ftfs_listxattr,
+	// .getattr		= ftfs_getattr,
+	.setattr		= ftfs_setattr,
+	// .get_inode_acl	= ftfs_get_acl,
+	// .set_acl		= ftfs_set_acl,
+	// .fiemap		= ftfs_fiemap,
+	.fileattr_get	= ftfs_fileattr_get,
+	// .fileattr_set	= ftfs_fileattr_set,
+};

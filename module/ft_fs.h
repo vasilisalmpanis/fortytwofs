@@ -20,6 +20,7 @@
 #include <linux/statfs.h>
 #include <linux/miscdevice.h>
 #include "fortytwofs.h"
+#include <linux/fileattr.h>
 
 typedef struct ftfs_super_info {
 	struct buffer_head *bh;

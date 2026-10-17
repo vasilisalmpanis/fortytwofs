@@ -8,4 +8,5 @@ const struct file_operations ftfs_file_ops = {
 	.mmap		= generic_file_mmap,
 	.fsync		= generic_file_fsync,
 	.splice_read	= filemap_splice_read,
+	.splice_write   = iter_file_splice_write,
 };

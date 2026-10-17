@@ -117,6 +117,10 @@ static int ftfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	sb->s_op = &ftfs_sops;
 	sb->s_fs_info = no_free_ptr(super_ft);
 	sb->s_max_links = 0xFF;
+	/* On-disk timestamps are signed 32-bit seconds */
+	sb->s_time_gran = NSEC_PER_SEC;
+	sb->s_time_min = S32_MIN;
+	sb->s_time_max = S32_MAX;
 
 	root = fortyfs_iget(sb, 0);
 	if (IS_ERR(root)) {

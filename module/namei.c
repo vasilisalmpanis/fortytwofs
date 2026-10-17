@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0
 #include "ft_fs.h"
 
+/* Directory contents changed: update its mtime and ctime */
+static void ftfs_dir_touch(struct inode *dir)
+{
+	inode_set_mtime_to_ts(dir, inode_set_ctime_current(dir));
+	mark_inode_dirty(dir);
+}
+
 static int ftfs_mkdir(struct mnt_idmap *idmap, struct inode *dir,
 		      struct dentry *dentry, umode_t mode)
 {
@@ -20,6 +27,7 @@ static int ftfs_mkdir(struct mnt_idmap *idmap, struct inode *dir,
 	if (err)
 		goto out_fail;
 	inode_inc_link_count(dir);
+	ftfs_dir_touch(dir);
 
 	/*
 	 * Clears the new flag from inode otherwise all other code waits on
@@ -51,6 +59,7 @@ static int ftfs_rmdir(struct inode *dir, struct dentry *dentry)
 	if (err < 0)
 		return err;
 	inode->i_size = 0;
+	ftfs_dir_touch(dir);
 	inode_set_ctime_to_ts(inode, inode_get_ctime(dir));
 	inode_dec_link_count(inode);
 	inode_dec_link_count(inode);
@@ -74,6 +83,7 @@ static int ftfs_create(struct mnt_idmap *idmap, struct inode *dir,
 		discard_new_inode(inode);
 		return err;
 	}
+	ftfs_dir_touch(dir);
 	d_instantiate_new(dentry, inode);
 	return 0;
 }
@@ -107,6 +117,7 @@ static int ftfs_unlink(struct inode *dir, struct dentry *dentry)
 	if (err)
 		return err;
 
+	ftfs_dir_touch(dir);
 	inode_set_ctime_to_ts(inode, inode_get_ctime(dir));
 	inode_dec_link_count(inode);
 	return 0;
@@ -129,6 +140,7 @@ static int ftfs_link(struct dentry *old_dentry, struct inode *dir,
 		return err;
 	}
 
+	ftfs_dir_touch(dir);
 	d_instantiate(new_dentry, inode);
 	return err;
 }
@@ -153,6 +165,7 @@ static int ftfs_symlink(struct mnt_idmap *idmap, struct inode *dir,
 	err = ftfs_add_dentry(dir, new_inode, &dentry->d_name);
 	if (unlikely(err))
 		goto out_fail;
+	ftfs_dir_touch(dir);
 	d_instantiate_new(dentry, new_inode);
 	return 0;
 out_fail:
@@ -174,6 +187,9 @@ static int ftfs_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 	struct qstr dotdot = QSTR_INIT("..", 2);
 	bool old_inode_was_dir = S_ISDIR(old_inode->i_mode);
 	int ret;
+
+	if (flags & ~RENAME_NOREPLACE)
+		return -EINVAL;
 
 	ret = ftfs_find_dentry(old_dir, &old_de, &bh_old_de,
 			       &old_dentry->d_name);
@@ -217,6 +233,18 @@ static int ftfs_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 			mark_buffer_dirty(bh_parent_de);
 		}
 		inode_dec_link_count(old_dir);
+	}
+	if (!ret) {
+		ftfs_dir_touch(old_dir);
+		if (new_dir != old_dir)
+			ftfs_dir_touch(new_dir);
+		inode_set_ctime_to_ts(old_inode, inode_get_ctime(old_dir));
+		mark_inode_dirty(old_inode);
+		if (new_inode) {
+			inode_set_ctime_to_ts(new_inode,
+					      inode_get_ctime(old_dir));
+			mark_inode_dirty(new_inode);
+		}
 	}
 out_dir:
 	if (bh_parent_de)
